@@ -57,9 +57,10 @@ export default function ChatPage() {
   const backboardAssistantId = activeThread?.backboardAssistantId ?? null
   const backboardThreadId = activeThread?.backboardThreadId ?? null
 
-  // Sync persisted messages into local state when switching threads
+  // Sync persisted messages into local state when switching threads.
+  // Skip sync while streaming to avoid duplicating the in-flight messages.
   useEffect(() => {
-    if (persistedMessages) {
+    if (persistedMessages && !isStreaming) {
       setMessages(
         persistedMessages.map((m) => ({
           id: m._id,
@@ -68,7 +69,7 @@ export default function ChatPage() {
         }))
       )
     }
-  }, [persistedMessages])
+  }, [persistedMessages, isStreaming])
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {

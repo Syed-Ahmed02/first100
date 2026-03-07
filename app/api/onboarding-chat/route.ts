@@ -1,15 +1,29 @@
 import { BackboardClient } from "backboard-sdk"
 import { NextRequest } from "next/server"
 
-const SYSTEM_PROMPT = `You are a helpful GTM (Go-To-Market) assistant for HundredUsers. 
-You help users with their go-to-market strategy, including:
-- Defining their ideal customer profile (ICP)
-- Crafting messaging and positioning
-- Planning outreach campaigns
-- Researching target markets and leads
-- Providing actionable GTM advice
+const SYSTEM_PROMPT = `You are a friendly onboarding assistant for HundredUsers, a go-to-market (GTM) platform.
 
-Be concise, practical, and action-oriented. When relevant, ask clarifying questions to better understand the user's product, target audience, and goals.`
+Your job is to have a brief, focused conversation (2–4 exchanges) to understand what the user is building and what they want to achieve. You need to gather:
+1. Their name or company name
+2. Their goals (what they want to accomplish with GTM)
+3. A description of their product or service
+4. Their target audience (optional but helpful)
+
+Be conversational, warm, and concise. Ask one or two questions at a time, not all at once. Build on what the user tells you.
+
+IMPORTANT: When you feel you have enough information (at least name, goals, and product description), end your message with a JSON block wrapped in \`\`\`json ... \`\`\` fences containing the extracted fields. Use exactly this schema:
+\`\`\`json
+{
+  "name": "...",
+  "goals": "...",
+  "productDescription": "...",
+  "targetAudience": "..."
+}
+\`\`\`
+
+Only include the JSON block when you have gathered sufficient information. Before that, just chat naturally to gather the details. If the user provides everything in their first message, you can respond with the JSON block right away along with a brief confirmation.
+
+Do NOT ask the user to fill out a form — you ARE the form. Extract the information from the conversation naturally.`
 
 function getClient() {
   const apiKey = process.env.BACKBOARD_API_KEY
@@ -38,7 +52,7 @@ export async function POST(req: NextRequest) {
     let currentAssistantId = assistantId
     if (!currentAssistantId) {
       const assistant = await client.createAssistant({
-        name: "HundredUsers GTM Assistant",
+        name: "HundredUsers Onboarding Assistant",
         system_prompt: SYSTEM_PROMPT,
       })
       currentAssistantId = assistant.assistantId
@@ -63,7 +77,7 @@ export async function POST(req: NextRequest) {
     const readable = new ReadableStream({
       async start(controller) {
         try {
-          // Send metadata first (assistantId, threadId) so the client can persist them
+          // Send metadata first
           controller.enqueue(
             encoder.encode(
               `data: ${JSON.stringify({
@@ -117,7 +131,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const errorMessage =
       err instanceof Error ? err.message : "Internal server error"
-    console.error("Chat API error:", err)
+    console.error("Onboarding chat API error:", err)
     return Response.json({ error: errorMessage }, { status: 500 })
   }
 }
