@@ -2,6 +2,7 @@
 
 import { AppHeader } from "@/components/app-header"
 import { AppSidebar } from "@/components/app-sidebar"
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 
 export default function ProjectsLayout({
   children,
@@ -9,12 +10,12 @@ export default function ProjectsLayout({
   children: React.ReactNode
 }) {
   return (
-    <div className="flex min-h-svh">
+    <SidebarProvider>
       <AppSidebar />
-      <div className="flex flex-1 flex-col">
+      <SidebarInset>
         <AppHeader />
-        <main className="flex-1 p-6">{children}</main>
-      </div>
-    </div>
+        <div className="flex-1 p-6">{children}</div>
+      </SidebarInset>
+    </SidebarProvider>
   )
 }

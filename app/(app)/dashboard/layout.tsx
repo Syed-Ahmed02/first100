@@ -4,6 +4,7 @@ import { useQuery } from "convex/react"
 import { api } from "@/convex/_generated/api"
 import { AppHeader } from "@/components/app-header"
 import { AppSidebar } from "@/components/app-sidebar"
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 
 export default function DashboardLayout({
   children,
@@ -19,12 +20,12 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="flex min-h-svh">
+    <SidebarProvider>
       <AppSidebar />
-      <div className="flex flex-1 flex-col">
+      <SidebarInset>
         <AppHeader />
-        <main className="flex-1 p-6">{children}</main>
-      </div>
-    </div>
+        <div className="flex-1 p-6">{children}</div>
+      </SidebarInset>
+    </SidebarProvider>
   )
 }

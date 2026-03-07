@@ -1,11 +1,12 @@
-"use client";
+"use client"
 
-import { Auth0Provider } from "@auth0/auth0-react";
-import { ConvexReactClient } from "convex/react";
-import { ConvexProviderWithAuth0 } from "convex/react-auth0";
-import type { ReactNode } from "react";
+import { Auth0Provider } from "@auth0/auth0-react"
+import { ConvexReactClient } from "convex/react"
+import { ConvexProviderWithAuth0 } from "convex/react-auth0"
+import type { ReactNode } from "react"
+import { TooltipProvider } from "@/components/ui/tooltip"
 
-const convex = new ConvexReactClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+const convex = new ConvexReactClient(process.env.NEXT_PUBLIC_CONVEX_URL!)
 
 export function ConvexClientProvider({ children }: { children: ReactNode }) {
   return (
@@ -20,8 +21,8 @@ export function ConvexClientProvider({ children }: { children: ReactNode }) {
       cacheLocation="localstorage"
     >
       <ConvexProviderWithAuth0 client={convex}>
-        {children}
+        <TooltipProvider>{children}</TooltipProvider>
       </ConvexProviderWithAuth0>
     </Auth0Provider>
-  );
+  )
 }
