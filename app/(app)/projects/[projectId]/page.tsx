@@ -21,6 +21,7 @@ import {
   RiPlayLine,
   RiRefreshLine,
 } from "@remixicon/react"
+import { toast } from "sonner"
 import { WorkflowStatus, WorkflowProgressBar, type WorkflowStep } from "@/components/workflow-status"
 import { AgentRunTimeline } from "@/components/agent-run-timeline"
 import { StreamingStepState } from "@/components/streaming-step-state"
@@ -53,7 +54,6 @@ export default function ProjectPage() {
   // ── Mutations ────────────────────────────────────────────────────────────
   const updateStatus = useMutation(api.projects.updateStatus)
   const createRun = useMutation(api.workflows.createRun)
-  const startRun = useMutation(api.workflows.startRun)
 
   // ── Loading state ────────────────────────────────────────────────────────
   if (project === undefined) {
@@ -98,20 +98,45 @@ export default function ProjectPage() {
   const statusOptions = ["draft", "active", "paused", "completed"] as const
 
   async function handleStartPipeline() {
-    if (!latestRun) return
+    if (!latestRun || !project) return
+
+    let runIdToUse: string = latestRun._id
 
     if (latestRun.status === "completed" || latestRun.status === "failed") {
       // Re-run: create a new run
-      const newRunId = await createRun({ projectId })
-      await startRun({ runId: newRunId })
-    } else if (latestRun.status === "pending") {
-      // First run: the run was created with the project, just start it
-      await startRun({ runId: latestRun._id })
+      runIdToUse = await createRun({ projectId })
     }
 
     // Update project status to active
-    if (project?.status === "draft") {
+    if (project.status === "draft") {
       await updateStatus({ projectId, status: "active" })
+    }
+
+    // Trigger the pipeline API route
+    try {
+      const res = await fetch("/api/pipeline/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId,
+          runId: runIdToUse,
+          productDescription: project.productDescription,
+          targetAudience: project.targetAudience ?? "",
+        }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error ?? "Failed to start pipeline")
+      }
+
+      toast.success("Pipeline started", {
+        description: "Research agents are running. Results will appear as they complete.",
+      })
+    } catch (err) {
+      toast.error("Failed to start pipeline", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      })
     }
   }
 
