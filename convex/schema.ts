@@ -32,4 +32,22 @@ export default defineSchema({
     ),
     createdAt: v.number(),
   }).index("by_user", ["userId"]),
+
+  chatThreads: defineTable({
+    userId: v.id("users"),
+    backboardAssistantId: v.string(),
+    backboardThreadId: v.string(),
+    title: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_backboard_thread", ["backboardThreadId"]),
+
+  chatMessages: defineTable({
+    threadId: v.id("chatThreads"),
+    role: v.union(v.literal("user"), v.literal("assistant")),
+    content: v.string(),
+    createdAt: v.number(),
+  }).index("by_thread", ["threadId"]),
 })

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation"
 import { useAuth0 } from "@auth0/auth0-react"
 import {
   RiDashboardLine,
+  RiChat3Line,
   RiSearchEyeLine,
   RiUserSearchLine,
   RiMailSendLine,
@@ -35,6 +36,7 @@ import {
 
 const mainNav = [
   { label: "Dashboard", href: "/dashboard", icon: RiDashboardLine },
+  { label: "Chat", href: "/chat", icon: RiChat3Line },
 ]
 
 const pipelineNav = [
@@ -80,7 +82,8 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
           <SidebarGroupContent>
             <SidebarMenu>
               {mainNav.map((item) => {
-                const isActive = pathname === item.href
+                const isActive =
+                  pathname === item.href || pathname.startsWith(item.href + "/")
                 return (
                   <SidebarMenuItem key={item.label}>
                     <SidebarMenuButton
