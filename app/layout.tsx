@@ -1,16 +1,23 @@
-import { Geist, Geist_Mono, Outfit } from "next/font/google"
+import { Geist_Mono, Outfit } from "next/font/google"
+import type { Metadata } from "next"
 
 import "./globals.css"
 import { ConvexClientProvider } from "./ConvexClientProvider"
 import { ThemeProvider } from "@/components/theme-provider"
-import { cn } from "@/lib/utils";
+import { Toaster } from "@/components/ui/sonner"
+import { cn } from "@/lib/utils"
 
-const outfit = Outfit({subsets:['latin'],variable:'--font-sans'})
+const outfit = Outfit({ subsets: ["latin"], variable: "--font-sans" })
 
 const fontMono = Geist_Mono({
   subsets: ["latin"],
   variable: "--font-mono",
 })
+
+export const metadata: Metadata = {
+  title: "HundredUsers",
+  description: "GTM campaign platform",
+}
 
 export default function RootLayout({
   children,
@@ -21,11 +28,19 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={cn("antialiased", fontMono.variable, "font-sans", outfit.variable)}
+      className={cn(
+        "antialiased",
+        fontMono.variable,
+        "font-sans",
+        outfit.variable
+      )}
     >
       <body>
         <ThemeProvider>
-          <ConvexClientProvider>{children}</ConvexClientProvider>
+          <ConvexClientProvider>
+            {children}
+            <Toaster />
+          </ConvexClientProvider>
         </ThemeProvider>
       </body>
     </html>
