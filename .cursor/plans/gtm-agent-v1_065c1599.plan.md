@@ -54,7 +54,7 @@ This repo is currently a minimal starter:
 - utility layer: [lib/utils.ts](lib/utils.ts)
 - Convex is installed but not yet wired into product logic: [convex/generated/api.d.ts](convex/_generated/api.d.ts)
 
-That means the plan should treat this as a greenfield product build on top of an existing Next.js + Tailwind + Convex + AI SDK foundation.
+That means the plan should treat this as a greenfield product build on top of an existing Next.js + Tailwind + Convex + **Backboard** foundation.
 
 ## Multi-Agent Workflow
 
@@ -104,7 +104,7 @@ Recommended concrete stack for this repo:
 
 - frontend/app shell: `Next.js 16 App Router`, `React 19`, `Tailwind CSS`, `shadcn/ui`, and `AI Elements`-style generated-content components
 - state/persistence/workflows: `Convex`
-- LLM orchestration: `Vercel AI SDK`, `OpenRouter`, `zod` structured outputs
+- **LLM / conversational AI: [Backboard API](https://docs.backboard.io/) and `backboard-sdk`** — assistants, threads, messages, memory, optional document upload; use `zod` for structured parsing of agent outputs where needed
 - research discovery: `Exa`
 - Reddit acquisition: public Reddit web scraping without using the Reddit API
 - page fetching / scraping runtime: `Browserbase` + `Puppeteer`
@@ -113,18 +113,19 @@ Recommended concrete stack for this repo:
 
 How these fit:
 
+- **Backboard** (hackathon sponsor) provides persistent conversations, assistants with custom instructions and tools, and shared memory — map each agent role (e.g. ICP, Research, Pain Synthesis, Messaging, Lead, Outreach) to Backboard assistants; use one thread per workflow step or run and `addMessage` for structured generation; optionally use Backboard memory for cross-step context.
 - `Exa` is a strong choice for finding high-signal discussions, threads, and long-tail complaint pages quickly
 - direct Reddit scraping keeps the research flow independent of Reddit API limits and app approval requirements
 - `Browserbase` makes sense when Reddit pages or other sources require resilient, JS-rendered browsing at scale
 - `Puppeteer` is the execution layer for deterministic extraction flows inside Browserbase or local/server runtimes
 - `Apify Store` provides a clean way to operationalize Apollo scraping behind a hosted actor instead of building that scraper from scratch
-- `OpenRouter` stays as the model gateway so agent models can be swapped without rewriting orchestration
+- Backboard supports configurable LLM provider and model per request (`llm_provider`, `model_name`) so agent models can be swapped without rewriting orchestration
 
 ## Recommended Architecture
 
 - `Next.js App Router` for pages, route handlers, and streaming UI.
 - `Convex` for persisted projects, research artifacts, workflow jobs, agent outputs, leads, and outreach drafts.
-- `AI SDK + OpenRouter` for structured agent generation and summarization.
+- **Backboard SDK** (`backboard-sdk`) for conversational agent generation: create one Backboard assistant per agent role (or a single assistant with tools), use threads per run/step, `addMessage` for each step with streaming or non-streaming; parse structured outputs with `zod` when needed.
 - `shadcn/ui` for forms, cards, tables, drawers, tabs, and dashboard layout primitives.
 - `AI Elements` patterns/components for agent status, generated text blocks, message previews, and streaming/loading states.
 - `External provider adapters` for:
@@ -296,10 +297,11 @@ Lead adapters:
 - Normalize company and person data separately so provider swaps do not ripple through the app.
 - Keep the Apify actor invocation behind a thin adapter so a direct Apollo or alternate provider integration can replace it later.
 
-AI generation:
+AI generation (Backboard):
 
-- Use structured outputs with `zod` at every major step.
+- Use **Backboard SDK** for all agent steps: create or reuse assistants (e.g. ICP Assistant, Research Assistant, Pain Synthesis Assistant, Messaging Assistant, Lead Assistant, Outreach Assistant), create a thread per workflow run or per step, call `addMessage` with step-specific content; use `stream: false` for structured steps and parse responses with `zod`.
 - Store both final structured output and enough prompt/result metadata for debugging.
+- Optionally use Backboard [Memory](https://docs.backboard.io/concepts/memory) for persistent context across steps or runs.
 
 ## Reliability and Product Safeguards
 
@@ -361,8 +363,8 @@ Make the system robust and explainable:
 - [convex/projects.ts](convex/projects.ts): create/read project records
 - [convex/workflows.ts](convex/workflows.ts): workflow status and orchestration entrypoints
 - [convex/research.ts](convex/research.ts): source discovery, extraction orchestration, and evidence persistence
-- [lib/ai/](lib/ai/): structured generation helpers
-- [lib/agents/](lib/agents/): per-agent prompts, contracts, and runners
+- [lib/ai/](lib/ai/) or `lib/backboard/`: Backboard client wrapper, assistant/thread helpers, and structured output parsing (e.g. with `zod`)
+- [lib/agents/](lib/agents/): per-agent prompts, Backboard assistant configs (system prompts, tools), and step runners using Backboard threads/messages
 - [lib/providers/exa/](lib/providers/exa/): search and result normalization
 - [lib/providers/reddit/](lib/providers/reddit/): public Reddit scraping and normalization
 - [lib/providers/browser/](lib/providers/browser/): Browserbase/Puppeteer extraction flows
@@ -374,6 +376,7 @@ Make the system robust and explainable:
 
 ## Implementation Notes
 
+- Use **Backboard** for all LLM-backed steps: install `backboard-sdk`, create a shared `BackboardClient`, define one Backboard assistant per agent role (or one assistant with tools), and use threads + `addMessage` for each step; see [Backboard Quickstart](https://docs.backboard.io/quickstart) and [SDK First Message](https://docs.backboard.io/sdk/first-message).
 - Treat `pain points`, `messaging`, `leads`, and `outreach` as separate persisted artifacts, not one transient response.
 - Favor small deterministic prompts with schemas over a monolithic “do everything” prompt.
 - Build the system so each agent stage can be rerun independently.
