@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button"
+import { AuthUI } from "@/components/auth-ui"
 
 export default function Page() {
   return (
@@ -9,6 +10,10 @@ export default function Page() {
           <p>You may now add components and start building.</p>
           <p>We&apos;ve already added the button component for you.</p>
           <Button className="mt-2">Button</Button>
+        </div>
+        <div className="rounded-lg border border-dashed p-4">
+          <h2 className="mb-2 font-medium">Auth0</h2>
+          <AuthUI />
         </div>
         <div className="font-mono text-xs text-muted-foreground">
           (Press <kbd>d</kbd> to toggle dark mode)

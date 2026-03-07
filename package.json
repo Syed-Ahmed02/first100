@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@auth0/auth0-react": "^2.6.0",
     "@ai-sdk/react": "^3.0.118",
     "@openrouter/ai-sdk-provider": "^2.2.3",
     "@remixicon/react": "^4.9.0",
