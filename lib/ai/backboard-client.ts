@@ -66,7 +66,8 @@ export async function generateStructured(
   // Create a thread for this generation
   const thread = await client.createThread(assistant.assistantId)
 
-  // Send the message and get a non-streaming response
+  // Send the message and get a non-streaming response.
+  // With stream: false, addMessage returns a MessageResponse with a .content string property.
   const response = await client.addMessage(thread.threadId, {
     content: options.content,
     llmProvider: options.llmProvider ?? "openai",
@@ -74,14 +75,55 @@ export async function generateStructured(
     stream: false,
   })
 
-  // Extract content from the response
-  const rawResponse = response as unknown
-  const content =
-    typeof rawResponse === "object" &&
-    rawResponse !== null &&
-    "content" in rawResponse
-      ? String((rawResponse as { content: unknown }).content)
-      : String(rawResponse)
+  // The SDK returns a MessageResponse object with .content as the assistant's text reply.
+  // We need to handle multiple possible shapes defensively:
+  // 1. MessageResponse object with .content string (expected)
+  // 2. Plain string (unlikely but safe)
+  // 3. Object without .content (unexpected — log and try toString)
+  let content: string
+
+  if (typeof response === "string") {
+    content = response
+  } else if (
+    typeof response === "object" &&
+    response !== null &&
+    "content" in response &&
+    typeof (response as unknown as Record<string, unknown>).content === "string"
+  ) {
+    content = (response as unknown as Record<string, unknown>).content as string
+  } else if (
+    typeof response === "object" &&
+    response !== null &&
+    typeof (response as { toString?: () => string }).toString === "function"
+  ) {
+    // MessageResponse has a custom toString() that returns the content
+    const str = (response as { toString: () => string }).toString()
+    // Avoid "[object Object]"
+    if (str && str !== "[object Object]") {
+      content = str
+    } else {
+      // Last resort: try to stringify and log for debugging
+      const serialized = JSON.stringify(response, null, 2)
+      console.error(
+        "[BackboardClient] Unexpected response shape:",
+        serialized.slice(0, 500)
+      )
+      content = serialized
+    }
+  } else {
+    const serialized = String(response)
+    console.error(
+      "[BackboardClient] Unexpected response type:",
+      typeof response,
+      serialized.slice(0, 500)
+    )
+    content = serialized
+  }
+
+  console.log(
+    `[BackboardClient] Agent "${config.name}" response (${content.length} chars):`,
+    content.slice(0, 200) + (content.length > 200 ? "..." : "")
+  )
 
   return {
     content,
@@ -91,7 +133,8 @@ export async function generateStructured(
 }
 
 /**
- * Extract JSON from a response that may contain markdown code fences.
+ * Extract JSON from a response that may contain markdown code fences,
+ * preamble text, or other wrapping around the JSON payload.
  */
 export function extractJson(text: string): string {
   // Try to extract from ```json ... ``` fences first
@@ -100,12 +143,12 @@ export function extractJson(text: string): string {
     return fenceMatch[1].trim()
   }
 
-  // Try to find raw JSON object or array
+  // Try to find raw JSON object or array (greedy — outermost braces/brackets)
   const jsonMatch = text.match(/(\{[\s\S]*\}|\[[\s\S]*\])/)
   if (jsonMatch) {
     return jsonMatch[1].trim()
   }
 
-  // Return the original text as-is
+  // Return the original text as-is and let JSON.parse surface the error
   return text.trim()
 }

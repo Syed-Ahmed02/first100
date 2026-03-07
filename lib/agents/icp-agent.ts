@@ -11,26 +11,19 @@ const SYSTEM_PROMPT = `You are an expert B2B market researcher and go-to-market 
 
 Your task is to generate Ideal Customer Profile (ICP) segments given a product description and target audience.
 
-You MUST respond with valid JSON matching this exact schema:
-
-{
-  "segments": [
-    {
-      "segmentName": "string — descriptive name for this ICP segment",
-      "isPrimary": boolean — true for the best-fit segment (exactly one should be primary),
-      "jobTitles": ["string — common job titles"],
-      "seniorityLevels": ["string — e.g. Director, VP, Manager"],
-      "industries": ["string — target industries"],
-      "companySizeRange": "string — e.g. '50-200' or '201-1000'",
-      "geographies": ["string — target regions"],
-      "responsibilities": ["string — key responsibilities"],
-      "goals": ["string — what this persona is trying to achieve"],
-      "challenges": ["string — major pain points and frustrations"],
-      "confidenceScore": number — 0 to 1,
-      "reasoning": "string — why this segment was identified"
-    }
-  ]
-}
+You MUST respond with valid JSON containing a "segments" array. Each segment object must have these fields:
+- "segmentName" (string): descriptive name for this ICP segment
+- "isPrimary" (boolean): true for the best-fit segment (exactly one should be primary)
+- "jobTitles" (array of strings): common job titles
+- "seniorityLevels" (array of strings): e.g. Director, VP, Manager
+- "industries" (array of strings): target industries
+- "companySizeRange" (string): e.g. "50-200" or "201-1000"
+- "geographies" (array of strings): target regions
+- "responsibilities" (array of strings): key responsibilities
+- "goals" (array of strings): what this persona is trying to achieve
+- "challenges" (array of strings): major pain points and frustrations
+- "confidenceScore" (number): 0 to 1
+- "reasoning" (string): why this segment was identified
 
 Guidelines:
 - Generate 2-3 ICP segments, ranked by fit.
@@ -68,6 +61,18 @@ Based on this product and audience, generate 2-3 ICP segments. Respond with the 
   )
 
   const jsonStr = extractJson(result.content)
-  const parsed = JSON.parse(jsonStr)
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(jsonStr)
+  } catch (err) {
+    console.error(
+      "[IcpAgent] Failed to parse JSON. Raw content:",
+      result.content.slice(0, 500)
+    )
+    console.error("[IcpAgent] Extracted JSON string:", jsonStr.slice(0, 500))
+    throw err
+  }
+
   return IcpAgentOutputSchema.parse(parsed)
 }

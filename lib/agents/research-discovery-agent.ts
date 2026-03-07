@@ -10,13 +10,7 @@ const QUERY_GEN_SYSTEM_PROMPT = `You are an expert research strategist. Given IC
 generate targeted search queries to find online discussions where the target audience
 complains about problems the product could solve.
 
-You MUST respond with valid JSON matching this schema:
-
-{
-  "queries": [
-    "string — a search query targeting pain points and complaints"
-  ]
-}
+You MUST respond with valid JSON containing a "queries" array of strings. Each string should be a search query targeting pain points and complaints.
 
 Guidelines:
 - Generate 4-6 search queries.
@@ -69,7 +63,21 @@ Generate 4-6 search queries to find online discussions where this audience compl
   )
 
   const jsonStr = extractJson(result.content)
-  const parsed = JSON.parse(jsonStr)
+
+  let parsed: Record<string, unknown>
+  try {
+    parsed = JSON.parse(jsonStr)
+  } catch (err) {
+    console.error(
+      "[ResearchDiscoveryAgent] Failed to parse JSON. Raw content:",
+      result.content.slice(0, 500)
+    )
+    console.error(
+      "[ResearchDiscoveryAgent] Extracted JSON string:",
+      jsonStr.slice(0, 500)
+    )
+    throw err
+  }
 
   if (!parsed.queries || !Array.isArray(parsed.queries)) {
     throw new Error("Invalid query generation output: missing queries array")

@@ -15,26 +15,16 @@ const SYSTEM_PROMPT = `You are an expert qualitative researcher specializing in 
 Given a set of discussion source evidence (posts, comments, reviews from online communities), 
 cluster them into recurring pain points/themes.
 
-You MUST respond with valid JSON matching this exact schema:
-
-{
-  "painPoints": [
-    {
-      "theme": "string — short label for the pain point",
-      "description": "string — detailed description of the pain point",
-      "category": "string — e.g. usability, pricing, integration, performance, support",
-      "frequency": number — how many sources mention this pain point,
-      "sentiment": "very_negative" | "negative" | "neutral" | "mixed",
-      "confidenceScore": number — 0 to 1,
-      "evidenceSnippets": [
-        {
-          "sourceUrl": "string — URL of the source",
-          "quote": "string — exact or near-exact quote from the source"
-        }
-      ]
-    }
-  ]
-}
+You MUST respond with valid JSON containing a "painPoints" array. Each pain point object must have:
+- "theme" (string): short label for the pain point
+- "description" (string): detailed description of the pain point
+- "category" (string): e.g. usability, pricing, integration, performance, support
+- "frequency" (number): how many sources mention this pain point
+- "sentiment" (string): one of "very_negative", "negative", "neutral", or "mixed"
+- "confidenceScore" (number): 0 to 1
+- "evidenceSnippets" (array): each snippet has:
+  - "sourceUrl" (string): URL of the source
+  - "quote" (string): exact or near-exact quote from the source
 
 Guidelines:
 - Group similar complaints under a single theme.
@@ -92,6 +82,21 @@ Respond with the JSON only.`
   )
 
   const jsonStr = extractJson(result.content)
-  const parsed = JSON.parse(jsonStr)
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(jsonStr)
+  } catch (err) {
+    console.error(
+      "[PainSynthesisAgent] Failed to parse JSON. Raw content:",
+      result.content.slice(0, 500)
+    )
+    console.error(
+      "[PainSynthesisAgent] Extracted JSON string:",
+      jsonStr.slice(0, 500)
+    )
+    throw err
+  }
+
   return PainSynthesisOutputSchema.parse(parsed)
 }

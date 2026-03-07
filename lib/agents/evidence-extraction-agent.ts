@@ -13,25 +13,19 @@ import {
 const SYSTEM_PROMPT = `You are an expert evidence extractor. Given raw content from online discussions,
 extract and normalize the evidence into structured discussion source objects.
 
-You MUST respond with valid JSON matching this exact schema:
-
-{
-  "sources": [
-    {
-      "sourceType": "reddit" | "hackernews" | "forum" | "review_site" | "other",
-      "url": "string — the source URL",
-      "postId": "string — platform-specific ID if available",
-      "title": "string — title of the post/thread",
-      "body": "string — the complaint/discussion text (cleaned, relevant portions)",
-      "author": "string — author if available",
-      "community": "string — subreddit, forum name, etc.",
-      "score": number — upvotes if available,
-      "commentCount": number — comment count if available,
-      "relevanceScore": number — 0 to 1, how relevant this is to the product/audience
-    }
-  ],
-  "searchQueries": ["string — the queries that found these sources"]
-}
+You MUST respond with valid JSON containing two fields:
+1. "sources" — an array of source objects, each with:
+   - "sourceType" (string): one of "reddit", "hackernews", "forum", "review_site", or "other"
+   - "url" (string): the source URL
+   - "postId" (string): platform-specific ID if available
+   - "title" (string): title of the post/thread
+   - "body" (string): the complaint/discussion text (cleaned, relevant portions)
+   - "author" (string): author if available
+   - "community" (string): subreddit, forum name, etc.
+   - "score" (number): upvotes if available
+   - "commentCount" (number): comment count if available
+   - "relevanceScore" (number): 0 to 1, how relevant this is to the product/audience
+2. "searchQueries" — an array of strings, the queries that found these sources
 
 Guidelines:
 - Extract the most relevant complaint/pain-point text from each source.
@@ -87,6 +81,21 @@ Respond with the JSON only.`
   )
 
   const jsonStr = extractJson(result.content)
-  const parsed = JSON.parse(jsonStr)
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(jsonStr)
+  } catch (err) {
+    console.error(
+      "[EvidenceExtractionAgent] Failed to parse JSON. Raw content:",
+      result.content.slice(0, 500)
+    )
+    console.error(
+      "[EvidenceExtractionAgent] Extracted JSON string:",
+      jsonStr.slice(0, 500)
+    )
+    throw err
+  }
+
   return DiscoveryAgentOutputSchema.parse(parsed)
 }
