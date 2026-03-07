@@ -1,6 +1,6 @@
 ---
 name: gtm-agent-v1
-overview: Implement a broader v1 AI GTM platform in this Next.js app using a multi-agent workflow, Convex-backed persistence/orchestration, and concrete provider layers for web research, scraping, lead enrichment, and AI generation.
+overview: Implement a broader v1 AI GTM platform in this Next.js app using a multi-agent workflow, Convex-backed persistence/orchestration, direct Reddit web scraping, Apollo lead extraction through Apify Store actors, and a shadcn/ui plus AI Elements-oriented interface.
 todos:
   - id: define-domain-model
     content: Design Convex schema and workflow entities for projects, evidence, pain points, messaging, leads, outreach, and run status.
@@ -12,16 +12,19 @@ todos:
     content: Add AI helpers and zod schemas for agent outputs including ICP research, pain-point synthesis, messaging generation, and outreach creation.
     status: pending
   - id: add-discussion-provider-layer
-    content: Create a provider abstraction for online discussion sources and implement Exa-powered discovery plus Browserbase or Puppeteer-backed page extraction for normalized evidence storage.
+    content: Create a provider abstraction for online discussion sources and implement Exa-powered discovery plus Browserbase or Puppeteer-backed Reddit web scraping for normalized evidence storage.
     status: pending
   - id: add-lead-provider-layer
-    content: Create a normalized lead generation adapter interface and wire one concrete provider implementation behind it.
+    content: Create a normalized lead generation adapter interface and wire Apollo scraping through an Apify Store actor as the first implementation.
     status: pending
   - id: orchestrate-pipeline
     content: Implement a multi-agent workflow runner that persists intermediate results, statuses, retries, handoff payloads, and errors.
     status: pending
   - id: phase-roadmap
     content: Split implementation into sequential plans for platform foundation, research agents, and campaign generation agents.
+    status: pending
+  - id: refine-ui-stack
+    content: Use shadcn/ui primitives and AI Elements-style components for intake, progress, evidence review, and generated-output panels.
     status: pending
   - id: harden-v1-product
     content: Add evidence traceability, deduplication/filtering, step regeneration, and operational safeguards for secrets and provider failures.
@@ -99,20 +102,22 @@ flowchart LR
 
 Recommended concrete stack for this repo:
 
-- frontend/app shell: `Next.js 16 App Router`, `React 19`, `Tailwind CSS`, existing shadcn-style component setup
+- frontend/app shell: `Next.js 16 App Router`, `React 19`, `Tailwind CSS`, `shadcn/ui`, and `AI Elements`-style generated-content components
 - state/persistence/workflows: `Convex`
 - LLM orchestration: `Vercel AI SDK`, `OpenRouter`, `zod` structured outputs
 - research discovery: `Exa`
-- page fetching / scraping fallback: `Browserbase` + `Puppeteer`
-- community sources: `Reddit API` where available, with browser automation fallback only when necessary and legally compliant
-- lead data: one provider abstraction around `Apollo`, `People Data Labs`, or `Clearbit`
-- observability: persisted step logs in Convex first, optional `Sentry` later
+- Reddit acquisition: public Reddit web scraping without using the Reddit API
+- page fetching / scraping runtime: `Browserbase` + `Puppeteer`
+- lead data: `Apollo` scraped through an `Apify Store` actor behind a provider abstraction
+- observability: persisted step logs and run metadata in `Convex` only for now
 
 How these fit:
 
 - `Exa` is a strong choice for finding high-signal discussions, threads, and long-tail complaint pages quickly
-- `Browserbase` makes sense when pages need authenticated or JS-rendered browsing at scale
+- direct Reddit scraping keeps the research flow independent of Reddit API limits and app approval requirements
+- `Browserbase` makes sense when Reddit pages or other sources require resilient, JS-rendered browsing at scale
 - `Puppeteer` is the execution layer for deterministic extraction flows inside Browserbase or local/server runtimes
+- `Apify Store` provides a clean way to operationalize Apollo scraping behind a hosted actor instead of building that scraper from scratch
 - `OpenRouter` stays as the model gateway so agent models can be swapped without rewriting orchestration
 
 ## Recommended Architecture
@@ -120,11 +125,13 @@ How these fit:
 - `Next.js App Router` for pages, route handlers, and streaming UI.
 - `Convex` for persisted projects, research artifacts, workflow jobs, agent outputs, leads, and outreach drafts.
 - `AI SDK + OpenRouter` for structured agent generation and summarization.
+- `shadcn/ui` for forms, cards, tables, drawers, tabs, and dashboard layout primitives.
+- `AI Elements` patterns/components for agent status, generated text blocks, message previews, and streaming/loading states.
 - `External provider adapters` for:
   - search/discovery: Exa first
-  - social discussion ingestion: Reddit first, designed to support more sources later
+  - social discussion ingestion: Reddit first via public page scraping, designed to support more sources later
   - browser extraction: Browserbase and Puppeteer for JS-rendered pages and resilient scraping
-  - lead enrichment/search: Apollo/Clearbit/People Data Labs-style provider abstraction
+  - lead enrichment/search: Apollo via Apify Store actor first, wrapped in a provider abstraction
 - `Typed multi-agent orchestration` that runs step-by-step and stores intermediate outputs so the dashboard can update incrementally.
 
 ```mermaid
@@ -181,7 +188,12 @@ Recommended module layout:
 - `convex/workflows.ts`
 - `convex/http.ts` if webhook/provider callbacks are needed later
 - `lib/ai/` for prompt builders and structured generation helpers
-- `lib/providers/reddit/` for search/fetch/normalize logic
+- `lib/agents/` for per-agent prompts, contracts, and runners
+- `lib/providers/exa/` for search and result normalization
+- `lib/providers/reddit/` for scrape/fetch/normalize logic against public Reddit pages
+- `lib/providers/browser/` for Browserbase/Puppeteer extraction flows
+- `lib/providers/apify/` for Apify client and actor execution helpers
+- `lib/providers/apollo/` for Apollo lead normalization from Apify actor output
 - `lib/providers/leads/` for provider adapters and a common interface
 - `lib/workflows/` for orchestration logic and step contracts
 - `lib/validation/` for shared `zod` schemas
@@ -205,8 +217,9 @@ Recommended pipeline:
 1. Discussion discovery
 
 - Use `Exa` to discover relevant discussions and landing URLs.
-- Pull from Reddit directly where possible and normalize posts/comments into `discussionSources`.
-- Use `Browserbase` or `Puppeteer` when pages require rendered extraction.
+- Scrape public Reddit thread and comment pages directly without using the Reddit API.
+- Use `Browserbase` or `Puppeteer` when Reddit pages or linked sources require rendered extraction.
+- Normalize posts, comments, authors, timestamps, and thread URLs into `discussionSources`.
 - Store raw evidence, not just summaries.
 
 1. Pain-point synthesis
@@ -221,7 +234,8 @@ Recommended pipeline:
 1. Lead generation
 
 - Transform ICP into lead-search filters.
-- Call provider adapters and store candidate leads.
+- Run the Apollo scraper through an `Apify Store` actor.
+- Normalize returned people/company data and store candidate leads.
 
 1. Outreach generation
 
@@ -231,6 +245,12 @@ Recommended pipeline:
 ## UI Plan
 
 Replace the placeholder [app/page.tsx](app/page.tsx) with a dashboard-oriented app.
+
+UI component approach:
+
+- use `shadcn/ui` for forms, cards, tables, badges, dialogs, drawers, tabs, and skeleton states
+- use `AI Elements` or the same design patterns for agent activity, generation blocks, streaming progress, and draft previews
+- keep UI primitives composable so generated outputs can later support approve/edit/regenerate actions
 
 Recommended screens/components:
 
@@ -246,6 +266,9 @@ Recommended screens/components:
 - `components/leads-panel.tsx`
 - `components/outreach-panel.tsx`
 - `components/source-evidence-drawer.tsx`
+- `components/agent-run-timeline.tsx`
+- `components/generated-copy-block.tsx`
+- `components/streaming-step-state.tsx`
 
 Dashboard behavior:
 
@@ -261,15 +284,17 @@ For the broader v1 you selected, keep integrations behind interfaces from day on
 Research adapters:
 
 - Start with `Exa` for search/discovery because it broadens coverage immediately.
-- Add `Reddit` as the first deep source implementation because it fits the product promise well.
+- Add `Reddit` as the first deep source implementation via public web scraping because it fits the product promise well.
 - Define a generic `DiscussionProvider` so X, Hacker News, G2, LinkedIn, or forums can be added later without rewriting synthesis logic.
 - Define a generic `BrowserExtractionProvider` so Browserbase and local Puppeteer flows can share normalization logic.
+- Persist both cleaned text and enough page metadata or snapshots to debug scraper quality.
 
 Lead adapters:
 
 - Define a `LeadProvider` interface returning normalized lead objects.
-- Implement one provider first, but keep provider-specific fields isolated in adapter code.
+- Implement `Apollo` first through an `Apify Store` actor, but keep provider-specific fields isolated in adapter code.
 - Normalize company and person data separately so provider swaps do not ripple through the app.
+- Keep the Apify actor invocation behind a thin adapter so a direct Apollo or alternate provider integration can replace it later.
 
 AI generation:
 
@@ -295,6 +320,7 @@ Build the product skeleton and orchestration substrate:
 - workflow and agent status tracking
 - dashboard skeleton
 - shared `zod` contracts for every agent handoff
+- baseline `shadcn/ui` and `AI Elements` component system for the dashboard
 
 ### Plan 2: Research Agent System
 
@@ -302,7 +328,7 @@ Build the market-research side first:
 
 - `ICPAgent`
 - `Exa` discovery integration
-- `Reddit` ingestion
+- direct `Reddit` scraping without the Reddit API
 - `Browserbase` or `Puppeteer` extraction fallback
 - pain-point clustering with evidence and citations
 
@@ -311,6 +337,7 @@ Build the market-research side first:
 Build downstream commercial output:
 
 - `MessagingAgent`
+- `Apollo` via `Apify Store` actor
 - lead provider abstraction
 - normalized leads
 - `OutreachAgent`
@@ -321,7 +348,7 @@ Build downstream commercial output:
 Make the system robust and explainable:
 
 - retries/regeneration
-- observability/logging
+- Convex-based observability/logging only
 - better loading states
 - source inspection UX
 - deduplication and trust scoring
@@ -337,9 +364,13 @@ Make the system robust and explainable:
 - [lib/ai/](lib/ai/): structured generation helpers
 - [lib/agents/](lib/agents/): per-agent prompts, contracts, and runners
 - [lib/providers/exa/](lib/providers/exa/): search and result normalization
-- [lib/providers/reddit/](lib/providers/reddit/): discussion ingestion
+- [lib/providers/reddit/](lib/providers/reddit/): public Reddit scraping and normalization
 - [lib/providers/browser/](lib/providers/browser/): Browserbase/Puppeteer extraction flows
+- [lib/providers/apify/](lib/providers/apify/): actor execution helpers
+- [lib/providers/apollo/](lib/providers/apollo/): Apollo normalization over Apify actor output
 - [lib/providers/leads/](lib/providers/leads/): lead search abstraction
+- [components/ui/](components/ui/): shadcn primitives extended as needed
+- [components/ai/](components/ai/): AI Elements-style generated-content and agent-state components
 
 ## Implementation Notes
 
@@ -348,6 +379,8 @@ Make the system robust and explainable:
 - Build the system so each agent stage can be rerun independently.
 - Design the dashboard around traceability: every major insight should be linked back to evidence.
 - Keep discovery separate from extraction so search providers and scraping providers can evolve independently.
+- Keep Reddit scraping resilient by separating URL discovery, page fetch, DOM extraction, text cleanup, and evidence scoring into separate functions.
+- Store enough metadata from the Apollo Apify actor run to rehydrate, debug, or replay lead imports without changing downstream lead schemas.
 
 ## Definition of Done For V1
 
