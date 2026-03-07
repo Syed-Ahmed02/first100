@@ -1,5 +1,6 @@
 import { mutation, query } from "./_generated/server"
 import { v } from "convex/values"
+import { PIPELINE_STEPS, type PipelineStep } from "./workflows"
 
 /**
  * List all projects for the current user.
@@ -53,7 +54,7 @@ export const get = query({
 })
 
 /**
- * Create a new project.
+ * Create a new project and initialize a workflow run.
  */
 export const create = mutation({
   args: {
@@ -75,15 +76,38 @@ export const create = mutation({
 
     if (!user) throw new Error("User not found")
 
-    return await ctx.db.insert("projects", {
+    const now = Date.now()
+
+    // Create the project
+    const projectId = await ctx.db.insert("projects", {
       userId: user._id,
       name: args.name,
       productDescription: args.productDescription,
       targetAudience: args.targetAudience,
       goals: args.goals,
       status: "draft",
-      createdAt: Date.now(),
+      createdAt: now,
     })
+
+    // Create an initial workflow run with all steps pending
+    const runId = await ctx.db.insert("workflowRuns", {
+      projectId,
+      status: "pending",
+      createdAt: now,
+    })
+
+    for (const step of PIPELINE_STEPS) {
+      await ctx.db.insert("workflowSteps", {
+        runId,
+        projectId,
+        step: step as PipelineStep,
+        status: "pending",
+        retryCount: 0,
+        createdAt: now,
+      })
+    }
+
+    return projectId
   },
 })
 

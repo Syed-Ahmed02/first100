@@ -71,10 +71,10 @@ flowchart LR
 
 **Two implementation options**
 
-| Approach           | Pros                                                                                      | Cons                                                           |
-| ------------------ | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| Approach           | Pros                                                                                      | Cons                                                                                                                                        |
+| ------------------ | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | **A. Ask → form**  | One input (or short chat); AI suggests or pre-fills form; then user sees one form screen. | Use **Backboard SDK**: one onboarding assistant, thread per user/session, `addMessage` for the ask; parse or use response to pre-fill form. |
-| **B. Direct form** | Single multi-section form (no “ask” step). Simpler.                                       | No conversational “ask” moment.                                |
+| **B. Direct form** | Single multi-section form (no “ask” step). Simpler.                                       | No conversational “ask” moment.                                                                                                             |
 
 Recommendation: **A** for UX (“ask” first), with the form being a **fixed schema** (name, goals, product description, connections). The “ask” can pre-fill or suggest values via AI; the form is always the same structure so you can persist to Convex and drive the GTM pipeline.
 

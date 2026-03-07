@@ -85,6 +85,19 @@ Building a full UI for the "hundredusers" GTM (Go-To-Market) campaign platform. 
 - **Chat page sync fix**: `persistedMessages` useEffect guarded with `!isStreaming` to prevent mid-stream duplication
 - **Onboarding redirect fix**: Moved `router.replace("/dashboard")` from render into `useEffect` to fix React hooks rules violations ("Cannot update Router while rendering", "Rendered fewer/more hooks")
 
+### Phase 1: Platform Foundation (branch: `phase1-platform-foundation`)
+
+- Extended Convex schema with 9 new tables: `workflowRuns`, `workflowSteps`, `icpProfiles`, `discussionSources`, `painPoints`, `messagingAngles`, `leadLists`, `leads`, `outreachDrafts`
+- Created `convex/workflows.ts` — full workflow run/step lifecycle: create, start, complete, fail, cancel runs; start, complete, fail individual steps; query latest run and steps by project
+- Created `convex/research.ts` — store and query ICP profiles, discussion sources, and pain points
+- Created `convex/messaging.ts` — store and query messaging angles
+- Created `convex/leads.ts` — lead list management, lead storage and querying
+- Created `convex/outreach.ts` — outreach draft storage, status management, per-lead queries
+- Updated `convex/projects.ts` — project creation now auto-initializes a workflow run with all 7 pipeline steps
+- Created `lib/validation/schemas.ts` — shared Zod schemas for all agent handoffs (ICP, discovery, pain synthesis, messaging, leads, outreach) with `STEP_DISPLAY` metadata
+- Built 6 dashboard panel components: `icp-panel`, `pain-points-panel`, `messaging-panel`, `leads-panel`, `outreach-panel`, plus `workflow-status`, `agent-run-timeline`, `streaming-step-state`
+- Rebuilt `projects/[projectId]/page.tsx` as a full campaign dashboard with tabbed panels (Overview, ICP, Pain Points, Messaging, Leads, Outreach, Pipeline), progress bar, agent timeline, and start/re-run pipeline button
+
 ---
 
 ## File Map
@@ -99,9 +112,14 @@ Building a full UI for the "hundredusers" GTM (Go-To-Market) campaign platform. 
 
 ### Convex Backend
 
-- `convex/schema.ts` — users, projects, chatThreads, chatMessages
+- `convex/schema.ts` — users, projects, chatThreads, chatMessages, workflowRuns, workflowSteps, icpProfiles, discussionSources, painPoints, messagingAngles, leadLists, leads, outreachDrafts
 - `convex/users.ts` — getOrCreate, me, completeOnboarding
-- `convex/projects.ts` — list, get, create, updateStatus
+- `convex/projects.ts` — list, get, create (with workflow init), updateStatus
+- `convex/workflows.ts` — createRun, getLatestRun, listRuns, getSteps, getProjectSteps, startRun, completeRun, failRun, cancelRun, updateStep, startStep, completeStep, failStep
+- `convex/research.ts` — storeIcpProfiles, getIcpProfiles, storeDiscussionSources, getDiscussionSources, storePainPoints, getPainPoints
+- `convex/messaging.ts` — storeMessagingAngles, getMessagingAngles
+- `convex/leads.ts` — createLeadList, updateLeadList, storeLeads, getLeads, getLeadLists
+- `convex/outreach.ts` — storeDrafts, getDrafts, updateDraftStatus, getDraftsByLead
 - `convex/chat.ts` — createThread, listThreads, getThread, updateThread, deleteThread, saveMessage, listMessages
 
 ### API Routes
@@ -120,7 +138,7 @@ Building a full UI for the "hundredusers" GTM (Go-To-Market) campaign platform. 
 - `app/(app)/dashboard/layout.tsx` — dashboard shell with SidebarProvider
 - `app/(app)/dashboard/page.tsx` — project list with new project dialog
 - `app/(app)/projects/layout.tsx` — project shell with SidebarProvider
-- `app/(app)/projects/[projectId]/page.tsx` — project detail page
+- `app/(app)/projects/[projectId]/page.tsx` — campaign dashboard with tabbed panels (overview, ICP, pain points, messaging, leads, outreach, pipeline)
 - `app/(app)/chat/layout.tsx` — chat shell with SidebarProvider
 - `app/(app)/chat/page.tsx` — full chat UI with persistence
 
@@ -129,7 +147,20 @@ Building a full UI for the "hundredusers" GTM (Go-To-Market) campaign platform. 
 - `components/app-sidebar.tsx` — shadcn Sidebar (Dashboard, Chat, Pipeline nav, user menu footer)
 - `components/app-header.tsx` — SidebarTrigger + separator
 - `components/user-menu.tsx` — unused (can be deleted)
+- `components/workflow-status.tsx` — vertical step timeline + horizontal progress bar for pipeline
+- `components/agent-run-timeline.tsx` — compact horizontal agent execution timeline
+- `components/streaming-step-state.tsx` — pulsing loading indicator for active pipeline steps
+- `components/icp-panel.tsx` — ICP segment cards with roles, industries, challenges
+- `components/pain-points-panel.tsx` — pain point cards with evidence snippets and source links
+- `components/messaging-panel.tsx` — messaging angle cards with hooks and CTAs
+- `components/leads-panel.tsx` — lead list with contact details and action links
+- `components/outreach-panel.tsx` — outreach draft cards with copy-to-clipboard
 - `components/ui/` — all shadcn UI primitives
+
+### Validation / Contracts
+
+- `lib/validation/schemas.ts` — shared Zod schemas for all agent handoffs (ICP, discovery, pain points, messaging, leads, outreach)
+- `lib/validation/index.ts` — barrel export
 
 ---
 
@@ -139,3 +170,6 @@ Building a full UI for the "hundredusers" GTM (Go-To-Market) campaign platform. 
 - End-to-end testing of chat and onboarding flows
 - Gmail OAuth implementation (currently a placeholder button)
 - Pipeline pages (Research, Leads, Outreach) — placeholder routes
+- **Phase 2**: Research agent system (ICPAgent, Exa discovery, Reddit scraping, Browserbase/Puppeteer, pain-point clustering)
+- **Phase 3**: Campaign agent system (MessagingAgent, Apollo/Apify leads, OutreachAgent)
+- **Phase 4**: Hardening (retries, regeneration, observability, dedup, trust scoring)
