@@ -1,23 +1,62 @@
-import { Button } from "@/components/ui/button"
-import { AuthUI } from "@/components/auth-ui"
+"use client"
 
-export default function Page() {
+import { useAuth0 } from "@auth0/auth0-react"
+import { useConvexAuth } from "convex/react"
+import { useMutation, useQuery } from "convex/react"
+import { useRouter } from "next/navigation"
+import { useEffect } from "react"
+import { api } from "@/convex/_generated/api"
+import { Skeleton } from "@/components/ui/skeleton"
+
+export default function HomePage() {
+  const { isLoading: authLoading, isAuthenticated } = useAuth0()
+  const { isLoading: convexLoading } = useConvexAuth()
+  const router = useRouter()
+
+  const user = useQuery(
+    api.users.me,
+    !authLoading && isAuthenticated ? {} : "skip"
+  )
+  const getOrCreate = useMutation(api.users.getOrCreate)
+
+  // Ensure user record exists in Convex when authenticated
+  useEffect(() => {
+    if (isAuthenticated && user === null) {
+      getOrCreate()
+    }
+  }, [isAuthenticated, user, getOrCreate])
+
+  // Route based on auth + onboarding state
+  useEffect(() => {
+    if (authLoading || convexLoading) return
+
+    // Not authenticated → login
+    if (!isAuthenticated) {
+      router.replace("/login")
+      return
+    }
+
+    // Still loading user from Convex
+    if (user === undefined) return
+
+    // User exists and onboarding complete → dashboard
+    if (user && user.onboardingComplete) {
+      router.replace("/dashboard")
+      return
+    }
+
+    // User exists but not onboarded → onboarding
+    if (user && !user.onboardingComplete) {
+      router.replace("/onboarding")
+      return
+    }
+  }, [authLoading, convexLoading, isAuthenticated, user, router])
+
   return (
-    <div className="flex min-h-svh p-6">
-      <div className="flex max-w-md min-w-0 flex-col gap-4 text-sm leading-loose">
-        <div>
-          <h1 className="font-medium">Project ready!</h1>
-          <p>You may now add components and start building.</p>
-          <p>We&apos;ve already added the button component for you.</p>
-          <Button className="mt-2">Button</Button>
-        </div>
-        <div className="rounded-lg border border-dashed p-4">
-          <h2 className="mb-2 font-medium">Auth0</h2>
-          <AuthUI />
-        </div>
-        <div className="font-mono text-xs text-muted-foreground">
-          (Press <kbd>d</kbd> to toggle dark mode)
-        </div>
+    <div className="flex min-h-svh items-center justify-center">
+      <div className="flex flex-col items-center gap-4">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-4 w-32" />
       </div>
     </div>
   )
