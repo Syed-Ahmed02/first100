@@ -1,31 +1,19 @@
 /**
  * Evidence Extraction Agent — Uses LLM to extract structured evidence from
  * raw page content fetched by the browser provider.
+ *
+ * Uses Vercel AI SDK generateText() with Output.object() and OpenRouter.
  */
 
-import { generateStructured, extractJson } from "@/lib/ai"
+import { generateText, Output } from "ai"
+import { getModel } from "@/lib/ai"
 import {
   DiscoveryAgentOutputSchema,
   type DiscoveryAgentOutput,
-  type DiscussionSource,
 } from "@/lib/validation"
 
 const SYSTEM_PROMPT = `You are an expert evidence extractor. Given raw content from online discussions,
 extract and normalize the evidence into structured discussion source objects.
-
-You MUST respond with valid JSON containing two fields:
-1. "sources" — an array of source objects, each with:
-   - "sourceType" (string): one of "reddit", "hackernews", "forum", "review_site", or "other"
-   - "url" (string): the source URL
-   - "postId" (string): platform-specific ID if available
-   - "title" (string): title of the post/thread
-   - "body" (string): the complaint/discussion text (cleaned, relevant portions)
-   - "author" (string): author if available
-   - "community" (string): subreddit, forum name, etc.
-   - "score" (number): upvotes if available
-   - "commentCount" (number): comment count if available
-   - "relevanceScore" (number): 0 to 1, how relevant this is to the product/audience
-2. "searchQueries" — an array of strings, the queries that found these sources
 
 Guidelines:
 - Extract the most relevant complaint/pain-point text from each source.
@@ -34,8 +22,7 @@ Guidelines:
 - Assign relevance scores based on how closely the content relates to the product/audience.
 - Filter out spam, promotional content, and irrelevant posts (relevanceScore < 0.2).
 - Preserve enough context to understand the complaint.
-- Keep the body text to ~500-1000 chars per source (the most relevant parts).
-- Respond ONLY with the JSON object.`
+- Keep the body text to ~500-1000 chars per source (the most relevant parts).`
 
 export interface EvidenceExtractionInput {
   productDescription: string
@@ -65,37 +52,24 @@ Target Audience: ${input.targetAudience}
 
 Below are ${input.rawPages.length} raw pages fetched from online discussions. Extract and normalize the evidence.
 
-${pagesSummary}
+${pagesSummary}`
 
-Respond with the JSON only.`
+  const { output: result } = await generateText({
+    model: getModel(),
+    output: Output.object({ schema: DiscoveryAgentOutputSchema }),
+    system: SYSTEM_PROMPT,
+    prompt,
+  })
 
-  const result = await generateStructured(
-    {
-      name: "Evidence Extraction Agent",
-      systemPrompt: SYSTEM_PROMPT,
-    },
-    {
-      content: prompt,
-      modelName: "gpt-4o",
-    }
-  )
-
-  const jsonStr = extractJson(result.content)
-
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(jsonStr)
-  } catch (err) {
-    console.error(
-      "[EvidenceExtractionAgent] Failed to parse JSON. Raw content:",
-      result.content.slice(0, 500)
+  if (!result) {
+    throw new Error(
+      "[EvidenceExtractionAgent] Failed to generate structured output"
     )
-    console.error(
-      "[EvidenceExtractionAgent] Extracted JSON string:",
-      jsonStr.slice(0, 500)
-    )
-    throw err
   }
 
-  return DiscoveryAgentOutputSchema.parse(parsed)
+  console.log(
+    `[EvidenceExtractionAgent] Extracted ${result.sources.length} sources from ${input.rawPages.length} pages`
+  )
+
+  return result
 }

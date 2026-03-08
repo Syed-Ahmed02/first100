@@ -280,17 +280,13 @@ export default defineSchema({
     .index("by_run", ["runId"])
     .index("by_lead", ["leadId"]),
 
-  // ── Chat (existing) ──────────────────────────────────────────────────────
+  // ── Chat ──────────────────────────────────────────────────────────────────
   chatThreads: defineTable({
     userId: v.id("users"),
-    backboardAssistantId: v.string(),
-    backboardThreadId: v.string(),
     title: v.string(),
     createdAt: v.number(),
     updatedAt: v.number(),
-  })
-    .index("by_user", ["userId"])
-    .index("by_backboard_thread", ["backboardThreadId"]),
+  }).index("by_user", ["userId"]),
 
   chatMessages: defineTable({
     threadId: v.id("chatThreads"),

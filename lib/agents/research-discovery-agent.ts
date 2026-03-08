@@ -1,24 +1,33 @@
 /**
- * Research Discovery Agent — Uses Exa search to find relevant online discussions,
- * then extracts evidence from them.
+ * Research Discovery Agent — Generates search queries to find relevant
+ * online discussions based on ICP segments and product context.
+ *
+ * Uses Vercel AI SDK generateText() with Output.object() and OpenRouter.
  */
 
-import { generateStructured, extractJson } from "@/lib/ai"
+import { generateText, Output } from "ai"
+import { z } from "zod"
+import { getModel } from "@/lib/ai"
 import type { IcpAgentOutput } from "@/lib/validation"
 
-const QUERY_GEN_SYSTEM_PROMPT = `You are an expert research strategist. Given ICP segments and a product description,
+const SYSTEM_PROMPT = `You are an expert research strategist. Given ICP segments and a product description,
 generate targeted search queries to find online discussions where the target audience
 complains about problems the product could solve.
-
-You MUST respond with valid JSON containing a "queries" array of strings. Each string should be a search query targeting pain points and complaints.
 
 Guidelines:
 - Generate 4-6 search queries.
 - Target Reddit, forums, review sites, and community discussions.
 - Focus on complaints, frustrations, and unmet needs.
 - Include product category keywords and competitor names if relevant.
-- Mix broad queries with specific ones.
-- Respond ONLY with the JSON object.`
+- Mix broad queries with specific ones.`
+
+const QueryGenOutputSchema = z.object({
+  queries: z
+    .array(z.string())
+    .min(1)
+    .max(10)
+    .describe("Search queries targeting pain points and complaints"),
+})
 
 export interface QueryGenInput {
   productDescription: string
@@ -49,39 +58,24 @@ Target Audience: ${input.targetAudience}
 ICP Segments:
 ${segmentSummary}
 
-Generate 4-6 search queries to find online discussions where this audience complains about relevant problems. Respond with JSON only.`
+Generate 4-6 search queries to find online discussions where this audience complains about relevant problems.`
 
-  const result = await generateStructured(
-    {
-      name: "Research Query Generator",
-      systemPrompt: QUERY_GEN_SYSTEM_PROMPT,
-    },
-    {
-      content: prompt,
-      modelName: "gpt-4o",
-    }
+  const { output: result } = await generateText({
+    model: getModel(),
+    output: Output.object({ schema: QueryGenOutputSchema }),
+    system: SYSTEM_PROMPT,
+    prompt,
+  })
+
+  if (!result) {
+    throw new Error(
+      "[ResearchDiscoveryAgent] Failed to generate structured output"
+    )
+  }
+
+  console.log(
+    `[ResearchDiscoveryAgent] Generated ${result.queries.length} search queries`
   )
 
-  const jsonStr = extractJson(result.content)
-
-  let parsed: Record<string, unknown>
-  try {
-    parsed = JSON.parse(jsonStr)
-  } catch (err) {
-    console.error(
-      "[ResearchDiscoveryAgent] Failed to parse JSON. Raw content:",
-      result.content.slice(0, 500)
-    )
-    console.error(
-      "[ResearchDiscoveryAgent] Extracted JSON string:",
-      jsonStr.slice(0, 500)
-    )
-    throw err
-  }
-
-  if (!parsed.queries || !Array.isArray(parsed.queries)) {
-    throw new Error("Invalid query generation output: missing queries array")
-  }
-
-  return { queries: parsed.queries }
+  return result
 }

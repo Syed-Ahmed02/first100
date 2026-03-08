@@ -6,8 +6,6 @@ import { v } from "convex/values"
  */
 export const createThread = mutation({
   args: {
-    backboardAssistantId: v.string(),
-    backboardThreadId: v.string(),
     title: v.string(),
   },
   handler: async (ctx, args) => {
@@ -26,8 +24,6 @@ export const createThread = mutation({
     const now = Date.now()
     const threadId = await ctx.db.insert("chatThreads", {
       userId: user._id,
-      backboardAssistantId: args.backboardAssistantId,
-      backboardThreadId: args.backboardThreadId,
       title: args.title,
       createdAt: now,
       updatedAt: now,

@@ -12,11 +12,14 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@ai-sdk/react": "^3.0.118",
     "@auth0/auth0-react": "^2.6.0",
     "@base-ui/react": "^1.2.0",
     "@browserbasehq/sdk": "^2.7.0",
     "@hookform/resolvers": "^5.2.2",
+    "@openrouter/ai-sdk-provider": "^2.2.5",
     "@remixicon/react": "^4.9.0",
+    "ai": "^6.0.116",
     "backboard-sdk": "^1.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
