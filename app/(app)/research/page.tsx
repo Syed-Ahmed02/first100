@@ -24,11 +24,23 @@ import { StreamingStepState } from "@/components/streaming-step-state"
 import { IcpPanel } from "@/components/icp-panel"
 import { PainPointsPanel } from "@/components/pain-points-panel"
 import { DiscussionSourcesPanel } from "@/components/discussion-sources-panel"
+import { MessagingPanel } from "@/components/messaging-panel"
+import { LeadsPanel } from "@/components/leads-panel"
+import { OutreachPanel } from "@/components/outreach-panel"
 import { STEP_DISPLAY } from "@/lib/validation"
 import type { PipelineStep } from "@/lib/validation"
 import { RiRefreshLine } from "@remixicon/react"
 
-const validTabs = ["overview", "icp", "sources", "pain-points", "pipeline"] as const
+const validTabs = [
+  "overview",
+  "icp",
+  "sources",
+  "pain-points",
+  "messaging",
+  "leads",
+  "outreach",
+  "pipeline",
+] as const
 
 type ResearchTab = (typeof validTabs)[number]
 
@@ -50,6 +62,9 @@ export default function ResearchPage() {
   const icpProfiles = useQuery(api.research.getIcpProfiles)
   const discussionSources = useQuery(api.research.getDiscussionSources)
   const painPoints = useQuery(api.research.getPainPoints)
+  const messagingAngles = useQuery(api.messaging.getMessagingAngles)
+  const leads = useQuery(api.leads.getLeads)
+  const outreachDrafts = useQuery(api.outreach.getDrafts)
   const resetRunFromStep = useMutation(api.workflows.resetRunFromStep)
 
   const autoStartedRunIdRef = useRef<string | null>(null)
@@ -175,8 +190,8 @@ export default function ResearchPage() {
             Hi {firstName}, your agents are working.
           </h1>
           <p className="max-w-2xl text-sm text-muted-foreground">
-            Your initial research appears here as each step completes, starting
-            with ICP research and then pain-point synthesis.
+            Outputs appear here as each agent step completes, from research to
+            messaging, leads, and outreach drafts.
           </p>
         </div>
         {latestRun && (
@@ -367,6 +382,9 @@ export default function ResearchPage() {
               <TabsTrigger value="icp">ICP</TabsTrigger>
               <TabsTrigger value="sources">Sources</TabsTrigger>
               <TabsTrigger value="pain-points">Pain Points</TabsTrigger>
+              <TabsTrigger value="messaging">Messaging</TabsTrigger>
+              <TabsTrigger value="leads">Leads</TabsTrigger>
+              <TabsTrigger value="outreach">Outreach</TabsTrigger>
               <TabsTrigger value="pipeline">Pipeline</TabsTrigger>
             </TabsList>
 
@@ -374,6 +392,9 @@ export default function ResearchPage() {
               <IcpPanel profiles={icpProfiles as never} />
               <DiscussionSourcesPanel sources={discussionSources as never} />
               <PainPointsPanel painPoints={painPoints as never} />
+              <MessagingPanel angles={messagingAngles as never} />
+              <LeadsPanel leads={leads as never} />
+              <OutreachPanel drafts={outreachDrafts as never} />
             </TabsContent>
 
             <TabsContent value="icp" className="mt-4">
@@ -386,6 +407,18 @@ export default function ResearchPage() {
 
             <TabsContent value="sources" className="mt-4">
               <DiscussionSourcesPanel sources={discussionSources as never} />
+            </TabsContent>
+
+            <TabsContent value="messaging" className="mt-4">
+              <MessagingPanel angles={messagingAngles as never} />
+            </TabsContent>
+
+            <TabsContent value="leads" className="mt-4">
+              <LeadsPanel leads={leads as never} />
+            </TabsContent>
+
+            <TabsContent value="outreach" className="mt-4">
+              <OutreachPanel drafts={outreachDrafts as never} />
             </TabsContent>
 
             <TabsContent value="pipeline" className="mt-4">

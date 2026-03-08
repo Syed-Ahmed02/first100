@@ -136,3 +136,40 @@ export const getLeadLists = query({
       .collect()
   },
 })
+
+/**
+ * Get lead lists for a run.
+ */
+export const getLeadListsByRun = query({
+  args: { runId: v.id("workflowRuns") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("leadLists")
+      .withIndex("by_run", (q) => q.eq("runId", args.runId))
+      .collect()
+  },
+})
+
+/**
+ * Get leads for a run by traversing lead lists.
+ */
+export const getLeadsByRun = query({
+  args: { runId: v.id("workflowRuns") },
+  handler: async (ctx, args) => {
+    const leadLists = await ctx.db
+      .query("leadLists")
+      .withIndex("by_run", (q) => q.eq("runId", args.runId))
+      .collect()
+
+    const leads = []
+    for (const list of leadLists) {
+      const listLeads = await ctx.db
+        .query("leads")
+        .withIndex("by_lead_list", (q) => q.eq("leadListId", list._id))
+        .collect()
+      leads.push(...listLeads)
+    }
+
+    return leads
+  },
+})

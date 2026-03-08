@@ -67,6 +67,19 @@ export const getDrafts = query({
 })
 
 /**
+ * Get outreach drafts for a run.
+ */
+export const getDraftsByRun = query({
+  args: { runId: v.id("workflowRuns") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("outreachDrafts")
+      .withIndex("by_run", (q) => q.eq("runId", args.runId))
+      .collect()
+  },
+})
+
+/**
  * Update an outreach draft's status.
  */
 export const updateDraftStatus = mutation({

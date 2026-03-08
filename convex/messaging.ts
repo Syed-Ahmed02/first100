@@ -61,3 +61,16 @@ export const getMessagingAngles = query({
       .collect()
   },
 })
+
+/**
+ * Get messaging angles for a run.
+ */
+export const getMessagingAnglesByRun = query({
+  args: { runId: v.id("workflowRuns") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("messagingAngles")
+      .withIndex("by_run", (q) => q.eq("runId", args.runId))
+      .collect()
+  },
+})

@@ -233,3 +233,16 @@ export const getPainPoints = query({
       .collect()
   },
 })
+
+/**
+ * Get pain points for a run.
+ */
+export const getPainPointsByRun = query({
+  args: { runId: v.id("workflowRuns") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("painPoints")
+      .withIndex("by_run", (q) => q.eq("runId", args.runId))
+      .collect()
+  },
+})
