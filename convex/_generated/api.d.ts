@@ -12,7 +12,6 @@ import type * as chat from "../chat.js";
 import type * as leads from "../leads.js";
 import type * as messaging from "../messaging.js";
 import type * as outreach from "../outreach.js";
-import type * as projects from "../projects.js";
 import type * as research from "../research.js";
 import type * as users from "../users.js";
 import type * as workflows from "../workflows.js";
@@ -28,7 +27,6 @@ declare const fullApi: ApiFromModules<{
   leads: typeof leads;
   messaging: typeof messaging;
   outreach: typeof outreach;
-  projects: typeof projects;
   research: typeof research;
   users: typeof users;
   workflows: typeof workflows;

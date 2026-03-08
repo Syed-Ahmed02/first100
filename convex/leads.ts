@@ -2,18 +2,18 @@ import { mutation, query } from "./_generated/server"
 import { v } from "convex/values"
 
 /**
- * Create a lead list for a project run.
+ * Create a lead list for a user run.
  */
 export const createLeadList = mutation({
   args: {
-    projectId: v.id("projects"),
+    userId: v.id("users"),
     runId: v.id("workflowRuns"),
     provider: v.string(),
     searchCriteria: v.string(),
   },
   handler: async (ctx, args) => {
     return await ctx.db.insert("leadLists", {
-      projectId: args.projectId,
+      userId: args.userId,
       runId: args.runId,
       provider: args.provider,
       searchCriteria: args.searchCriteria,
@@ -51,7 +51,7 @@ export const updateLeadList = mutation({
  */
 export const storeLeads = mutation({
   args: {
-    projectId: v.id("projects"),
+    userId: v.id("users"),
     leadListId: v.id("leadLists"),
     leads: v.array(
       v.object({
@@ -76,7 +76,7 @@ export const storeLeads = mutation({
     const ids = []
     for (const lead of args.leads) {
       const id = await ctx.db.insert("leads", {
-        projectId: args.projectId,
+        userId: args.userId,
         leadListId: args.leadListId,
         ...lead,
         createdAt: now,
@@ -88,27 +88,51 @@ export const storeLeads = mutation({
 })
 
 /**
- * Get leads for a project.
+ * Get leads for the current user.
  */
 export const getLeads = query({
-  args: { projectId: v.id("projects") },
-  handler: async (ctx, args) => {
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) return []
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) =>
+        q.eq("tokenIdentifier", identity.tokenIdentifier)
+      )
+      .unique()
+
+    if (!user) return []
+
     return await ctx.db
       .query("leads")
-      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
       .collect()
   },
 })
 
 /**
- * Get lead lists for a project.
+ * Get lead lists for the current user.
  */
 export const getLeadLists = query({
-  args: { projectId: v.id("projects") },
-  handler: async (ctx, args) => {
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) return []
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) =>
+        q.eq("tokenIdentifier", identity.tokenIdentifier)
+      )
+      .unique()
+
+    if (!user) return []
+
     return await ctx.db
       .query("leadLists")
-      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
       .collect()
   },
 })

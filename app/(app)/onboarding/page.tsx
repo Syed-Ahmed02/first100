@@ -1,12 +1,15 @@
 "use client"
 
-import { useState, useRef, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useAuth0 } from "@auth0/auth0-react"
 import { useMutation, useQuery } from "convex/react"
 import { useRouter } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { zodResolver } from "@hookform/resolvers/zod"
+import { useChat } from "@ai-sdk/react"
+import { DefaultChatTransport } from "ai"
+import type { UIMessage } from "ai"
 import { api } from "@/convex/_generated/api"
 import {
   Card,
@@ -44,12 +47,6 @@ type OnboardingValues = z.infer<typeof onboardingSchema>
 
 type Step = "ask" | "form" | "connect"
 
-type ChatMessage = {
-  id: string
-  role: "user" | "assistant"
-  content: string
-}
-
 type ExtractedFields = {
   name?: string
   goals?: string
@@ -57,7 +54,15 @@ type ExtractedFields = {
   targetAudience?: string
 }
 
-/** Try to extract a ```json { ... } ``` block from assistant text */
+/** Extract plain text from a UIMessage's parts array */
+function getTextFromParts(msg: UIMessage): string {
+  return msg.parts
+    .filter((p): p is { type: "text"; text: string } => p.type === "text")
+    .map((p) => p.text)
+    .join("")
+}
+
+/** Try to extract a ```json { ... } ``` block from text */
 function extractJsonFields(text: string): ExtractedFields | null {
   const match = text.match(/```json\s*\n?([\s\S]*?)```/)
   if (!match) return null
@@ -82,6 +87,11 @@ function stripJsonBlock(text: string): string {
   return text.replace(/```json\s*\n?[\s\S]*?```/, "").trim()
 }
 
+// Custom transport to point useChat at the onboarding endpoint
+const onboardingTransport = new DefaultChatTransport({
+  api: "/api/onboarding-chat",
+})
+
 // --- Component ---
 
 export default function OnboardingPage() {
@@ -95,18 +105,33 @@ export default function OnboardingPage() {
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [formData, setFormData] = useState<OnboardingValues | null>(null)
-
-  // --- Chat state (Step 1) ---
-  const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [chatInput, setChatInput] = useState("")
-  const [isStreaming, setIsStreaming] = useState(false)
-  const [chatError, setChatError] = useState<string | null>(null)
   const [extractedFields, setExtractedFields] = useState<ExtractedFields | null>(null)
-  const abortRef = useRef<AbortController | null>(null)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  const chatInputRef = useRef<HTMLTextAreaElement>(null)
-  // Backboard IDs for the onboarding thread (ephemeral, not persisted)
-  const backboardIds = useRef<{ assistantId?: string; threadId?: string }>({})
+
+  // --- Vercel AI SDK useChat for onboarding ---
+  const {
+    messages,
+    sendMessage,
+    stop,
+    status,
+    error: chatError,
+  } = useChat({
+    transport: onboardingTransport,
+    onFinish: ({ message }) => {
+      // Check if the assistant's response contains extracted fields
+      if (message.role === "assistant") {
+        const text = getTextFromParts(message)
+        const fields = extractJsonFields(text)
+        if (fields) {
+          setExtractedFields((prev) => ({ ...prev, ...fields }))
+        }
+      }
+    },
+  })
+
+  const isStreaming = status === "streaming" || status === "submitted"
+
+  // --- Chat input state ---
+  const [chatInput, setChatInput] = useState("")
 
   // --- Form (Step 2) ---
   const {
@@ -130,154 +155,44 @@ export default function OnboardingPage() {
 
   useEffect(() => {
     if (isOnboarded) {
-      router.replace("/dashboard")
+      router.replace("/research")
     }
   }, [isOnboarded, router])
 
   // --- Chat helpers ---
 
-  // Auto-scroll
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages])
-
   // Auto-resize textarea
-  useEffect(() => {
-    const el = chatInputRef.current
-    if (el) {
-      el.style.height = "auto"
-      el.style.height = Math.min(el.scrollHeight, 120) + "px"
-    }
-  }, [chatInput])
+  const chatInputRef = useCallback(
+    (el: HTMLTextAreaElement | null) => {
+      if (el) {
+        el.style.height = "auto"
+        el.style.height = Math.min(el.scrollHeight, 120) + "px"
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [chatInput]
+  )
 
-  const stopStreaming = useCallback(() => {
-    abortRef.current?.abort()
-    setIsStreaming(false)
+  // Auto-scroll
+  const messagesEndRef = useCallback((el: HTMLDivElement | null) => {
+    el?.scrollIntoView({ behavior: "smooth" })
   }, [])
 
-  const sendChatMessage = useCallback(async () => {
+  const handleSendChat = useCallback(() => {
     const text = chatInput.trim()
     if (!text || isStreaming) return
-
     setChatInput("")
-    setChatError(null)
-
-    // Add user message
-    const userMsg: ChatMessage = {
-      id: `user-${Date.now()}`,
-      role: "user",
-      content: text,
-    }
-    setMessages((prev) => [...prev, userMsg])
-
-    // Add placeholder for assistant
-    const assistantMsgId = `assistant-${Date.now()}`
-    setMessages((prev) => [
-      ...prev,
-      { id: assistantMsgId, role: "assistant", content: "" },
-    ])
-
-    setIsStreaming(true)
-    const controller = new AbortController()
-    abortRef.current = controller
-
-    try {
-      const res = await fetch("/api/onboarding-chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: text,
-          assistantId: backboardIds.current.assistantId,
-          threadId: backboardIds.current.threadId,
-        }),
-        signal: controller.signal,
-      })
-
-      if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.error || "Chat request failed")
-      }
-
-      const reader = res.body?.getReader()
-      if (!reader) throw new Error("No response stream")
-
-      const decoder = new TextDecoder()
-      let buffer = ""
-      let fullContent = ""
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split("\n")
-        buffer = lines.pop() || ""
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue
-          try {
-            const data = JSON.parse(line.slice(6))
-
-            if (data.type === "metadata") {
-              backboardIds.current.assistantId = data.assistantId
-              backboardIds.current.threadId = data.threadId
-            } else if (data.type === "error") {
-              throw new Error(data.error || "Streaming error")
-            } else if (data.type === "done") {
-              // stream complete
-            } else if (data.content) {
-              fullContent += data.content
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === assistantMsgId
-                    ? { ...m, content: fullContent }
-                    : m
-                )
-              )
-            }
-          } catch (parseErr) {
-            if (
-              parseErr instanceof Error &&
-              parseErr.message !== "Streaming error"
-            ) {
-              continue
-            }
-            throw parseErr
-          }
-        }
-      }
-
-      // Check if assistant response contains extracted fields
-      const fields = extractJsonFields(fullContent)
-      if (fields) {
-        setExtractedFields((prev) => ({ ...prev, ...fields }))
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") {
-        // User cancelled
-      } else {
-        const msg =
-          err instanceof Error ? err.message : "Something went wrong"
-        setChatError(msg)
-        // Remove empty assistant placeholder on error
-        setMessages((prev) =>
-          prev.filter((m) => m.id !== assistantMsgId || m.content)
-        )
-      }
-    } finally {
-      setIsStreaming(false)
-      abortRef.current = null
-    }
-  }, [chatInput, isStreaming])
+    sendMessage({ text })
+  }, [chatInput, isStreaming, sendMessage])
 
   const handleChatKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault()
-        sendChatMessage()
+        handleSendChat()
       }
     },
-    [sendChatMessage]
+    [handleSendChat]
   )
 
   function proceedToForm() {
@@ -305,14 +220,31 @@ export default function OnboardingPage() {
     setSubmitting(true)
     setSubmitError(null)
     try {
-      await completeOnboarding({
+      const onboardingResult = await completeOnboarding({
         name: formData.name,
         goals: formData.goals,
         productDescription: formData.productDescription,
         targetAudience: formData.targetAudience || undefined,
         gmailConnected,
       })
-      router.replace("/dashboard")
+
+      const res = await fetch("/api/pipeline/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: onboardingResult.userId,
+          runId: onboardingResult.runId,
+          productDescription: formData.productDescription,
+          targetAudience: formData.targetAudience ?? "",
+        }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error ?? "Failed to start research agents")
+      }
+
+      router.replace("/research")
     } catch (err) {
       setSubmitError(
         err instanceof Error ? err.message : "Something went wrong"
@@ -320,6 +252,10 @@ export default function OnboardingPage() {
     } finally {
       setSubmitting(false)
     }
+  }
+
+  if (isOnboarded) {
+    return null
   }
 
   return (
@@ -374,15 +310,13 @@ export default function OnboardingPage() {
                 )}
 
                 {messages.map((msg) => {
+                  const textContent = getTextFromParts(msg)
                   const displayContent =
                     msg.role === "assistant"
-                      ? stripJsonBlock(msg.content)
-                      : msg.content
-  if (isOnboarded) {
-    return null
-  }
+                      ? stripJsonBlock(textContent)
+                      : textContent
 
-  return (
+                  return (
                     <div
                       key={msg.id}
                       className={cn(
@@ -429,7 +363,7 @@ export default function OnboardingPage() {
                 <div className="px-6">
                   <Alert variant="destructive">
                     <AlertDescription className="text-xs">
-                      {chatError}
+                      {chatError.message}
                     </AlertDescription>
                   </Alert>
                 </div>
@@ -489,13 +423,13 @@ export default function OnboardingPage() {
                     onKeyDown={handleChatKeyDown}
                     disabled={isStreaming}
                     rows={1}
-                    className="min-h-[2.25rem] max-h-[120px] resize-none text-sm"
+                    className="min-h-9 max-h-[120px] resize-none text-sm"
                   />
                   {isStreaming ? (
                     <Button
                       variant="outline"
                       size="icon-sm"
-                      onClick={stopStreaming}
+                      onClick={() => stop()}
                       title="Stop"
                     >
                       <RiStopCircleLine className="h-4 w-4" />
@@ -503,7 +437,7 @@ export default function OnboardingPage() {
                   ) : (
                     <Button
                       size="icon-sm"
-                      onClick={sendChatMessage}
+                      onClick={handleSendChat}
                       disabled={!chatInput.trim()}
                       title="Send"
                     >

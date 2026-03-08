@@ -1,9 +1,19 @@
 "use client"
 
-import { useState } from "react"
-import { useMutation, useQuery } from "convex/react"
+import { useMemo, useState } from "react"
+import { useQuery } from "convex/react"
 import { useRouter } from "next/navigation"
+import {
+  RiArrowRightUpLine,
+  RiChat3Line,
+  RiCompass3Line,
+  RiFileChartLine,
+  RiLightbulbFlashLine,
+  RiPulseLine,
+  RiSearchEyeLine,
+} from "@remixicon/react"
 import { api } from "@/convex/_generated/api"
+import { Button } from "@/components/ui/button"
 import {
   Card,
   CardContent,
@@ -11,245 +21,120 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Skeleton } from "@/components/ui/skeleton"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { RiAddLine } from "@remixicon/react"
 
-const statusColors: Record<string, string> = {
-  draft: "secondary",
-  active: "default",
-  paused: "outline",
-  completed: "secondary",
-}
+const quickActions = [
+  {
+    title: "Latest Research",
+    description: "See the newest async findings from your agents.",
+    href: "/research",
+    icon: RiSearchEyeLine,
+  },
+  {
+    title: "ICP Segments",
+    description: "Jump straight into the first research output.",
+    href: "/research?tab=icp",
+    icon: RiCompass3Line,
+  },
+  {
+    title: "Pain Points",
+    description: "Review synthesized complaints and evidence.",
+    href: "/research?tab=pain-points",
+    icon: RiPulseLine,
+  },
+  {
+    title: "Pipeline Status",
+    description: "Track which agent is running right now.",
+    href: "/research?tab=pipeline",
+    icon: RiFileChartLine,
+  },
+  {
+    title: "Start a Chat",
+    description: "Open the assistant for a new GTM conversation.",
+    href: "/chat",
+    icon: RiChat3Line,
+  },
+  {
+    title: "Ideas",
+    description: "Use chat to explore positioning and messaging ideas.",
+    href: "/chat?q=Give%20me%203%20new%20GTM%20angles%20to%20test",
+    icon: RiLightbulbFlashLine,
+  },
+] as const
 
 export default function DashboardPage() {
-  const projects = useQuery(api.projects.list)
   const user = useQuery(api.users.me)
-  const createProject = useMutation(api.projects.create)
   const router = useRouter()
+  const [query, setQuery] = useState("")
 
-  const [dialogOpen, setDialogOpen] = useState(false)
-  const [creating, setCreating] = useState(false)
-  const [newProject, setNewProject] = useState({
-    name: "",
-    productDescription: "",
-    targetAudience: "",
-    goals: "",
-  })
+  const firstName = useMemo(() => {
+    if (!user) return "there"
+    return user.name?.trim().split(/\s+/)[0] || user.email?.split("@")[0] || "there"
+  }, [user])
 
-  async function handleCreateProject() {
-    if (!newProject.name || !newProject.productDescription) return
-    setCreating(true)
-    try {
-      await createProject({
-        name: newProject.name,
-        productDescription: newProject.productDescription,
-        targetAudience: newProject.targetAudience || undefined,
-        goals: newProject.goals || undefined,
-      })
-      setNewProject({
-        name: "",
-        productDescription: "",
-        targetAudience: "",
-        goals: "",
-      })
-      setDialogOpen(false)
-    } finally {
-      setCreating(false)
-    }
+  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const value = query.trim()
+    if (!value) return
+    router.push(`/chat?q=${encodeURIComponent(value)}`)
   }
 
   return (
-    <div className="mx-auto max-w-4xl">
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Dashboard</h1>
-          {user && (
-            <p className="text-sm text-muted-foreground">
-              Welcome back, {user.name}
-            </p>
-          )}
+    <div className="mx-auto flex min-h-[calc(100svh-8rem)] w-full max-w-5xl flex-col items-center justify-center">
+      <div className="w-full max-w-4xl space-y-8">
+        <div className="space-y-3 text-center">
+          <p className="text-2xl font-semibold tracking-tight">
+            Hi {firstName}
+          </p>
+          <h1 className="text-3xl font-semibold tracking-tight">
+            How can I help you today?
+          </h1>
         </div>
-        <NewProjectDialog
-          open={dialogOpen}
-          onOpenChange={setDialogOpen}
-          values={newProject}
-          onChange={setNewProject}
-          onSubmit={handleCreateProject}
-          creating={creating}
-        />
-      </div>
 
-      {/* Project list */}
-      {projects === undefined ? (
-        <div className="grid gap-4 sm:grid-cols-2">
-          {[1, 2, 3].map((i) => (
-            <Card key={i}>
-              <CardHeader>
-                <Skeleton className="h-5 w-32" />
-                <Skeleton className="mt-1 h-4 w-48" />
-              </CardHeader>
-              <CardContent>
-                <Skeleton className="h-4 w-20" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ) : projects.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-            <p className="mb-1 text-sm font-medium">No projects yet</p>
-            <p className="mb-4 text-xs text-muted-foreground">
-              Create your first project to start running campaigns.
-            </p>
-            <Button size="sm" onClick={() => setDialogOpen(true)}>
-              <RiAddLine className="mr-1 h-4 w-4" />
-              New project
+        <form onSubmit={handleSubmit} className="mx-auto max-w-3xl">
+          <div className="flex items-center gap-3 rounded-2xl border bg-background px-4 py-3 shadow-sm">
+            <RiChat3Line className="h-5 w-5 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Ask HundredUsers anything..."
+              className="border-0 px-0 shadow-none focus-visible:ring-0"
+            />
+            <Button type="submit" size="sm" disabled={!query.trim()}>
+              Open chat
             </Button>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-2">
-          {projects.map((project) => (
-            <Card
-              key={project._id}
-              className="cursor-pointer transition-colors hover:bg-accent/50"
-              onClick={() => router.push(`/projects/${project._id}`)}
-            >
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base">{project.name}</CardTitle>
-                  <Badge
-                    variant={
-                      (statusColors[project.status] as "default" | "secondary" | "outline" | "destructive") ??
-                      "secondary"
-                    }
-                  >
-                    {project.status}
-                  </Badge>
-                </div>
-                <CardDescription className="line-clamp-2">
-                  {project.productDescription}
-                </CardDescription>
-              </CardHeader>
-              {project.targetAudience && (
-                <CardContent>
-                  <p className="text-xs text-muted-foreground">
-                    Audience: {project.targetAudience}
-                  </p>
-                </CardContent>
-              )}
-            </Card>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
+          </div>
+        </form>
 
-function NewProjectDialog({
-  open,
-  onOpenChange,
-  values,
-  onChange,
-  onSubmit,
-  creating,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  values: { name: string; productDescription: string; targetAudience: string; goals: string }
-  onChange: (values: { name: string; productDescription: string; targetAudience: string; goals: string }) => void
-  onSubmit: () => void
-  creating: boolean
-}) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogTrigger className="inline-flex h-8 cursor-pointer items-center gap-1 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90">
-          <RiAddLine className="h-4 w-4" />
-          New project
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Create a new project</DialogTitle>
-          <DialogDescription>
-            Set up a new GTM campaign project.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="flex flex-col gap-4 pt-2">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="project-name">Project name</Label>
-            <Input
-              id="project-name"
-              placeholder="e.g. Q1 SaaS Launch"
-              value={values.name}
-              onChange={(e) =>
-                onChange({ ...values, name: e.target.value })
-              }
-            />
+        <div className="space-y-4">
+          <div className="text-center">
+            <h2 className="text-lg font-medium">Quick Actions</h2>
           </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="project-desc">Product description</Label>
-            <Textarea
-              id="project-desc"
-              placeholder="Describe the product or service..."
-              rows={3}
-              value={values.productDescription}
-              onChange={(e) =>
-                onChange({
-                  ...values,
-                  productDescription: e.target.value,
-                })
-              }
-            />
+          <div className="grid gap-4 md:grid-cols-3">
+            {quickActions.map((action) => (
+              <Card
+                key={action.title}
+                className="cursor-pointer border-muted/70 transition-colors hover:bg-accent/40"
+                onClick={() => router.push(action.href)}
+              >
+                <CardHeader className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                      <action.icon className="h-5 w-5" />
+                    </div>
+                    <RiArrowRightUpLine className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                  <div className="space-y-1">
+                    <CardTitle className="text-base">{action.title}</CardTitle>
+                    <CardDescription>{action.description}</CardDescription>
+                  </div>
+                </CardHeader>
+                <CardContent />
+              </Card>
+            ))}
           </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="project-audience">
-              Target audience{" "}
-              <span className="text-muted-foreground">(optional)</span>
-            </Label>
-            <Input
-              id="project-audience"
-              placeholder="e.g. B2B SaaS founders"
-              value={values.targetAudience}
-              onChange={(e) =>
-                onChange({
-                  ...values,
-                  targetAudience: e.target.value,
-                })
-              }
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="project-goals">
-              Goals{" "}
-              <span className="text-muted-foreground">(optional)</span>
-            </Label>
-            <Input
-              id="project-goals"
-              placeholder="e.g. Get 100 signups"
-              value={values.goals}
-              onChange={(e) =>
-                onChange({ ...values, goals: e.target.value })
-              }
-            />
-          </div>
-          <Button onClick={onSubmit} disabled={creating || !values.name || !values.productDescription}>
-            {creating ? "Creating..." : "Create project"}
-          </Button>
         </div>
-      </DialogContent>
-    </Dialog>
+      </div>
+    </div>
   )
 }

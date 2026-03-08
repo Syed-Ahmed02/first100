@@ -2,11 +2,11 @@ import { mutation, query } from "./_generated/server"
 import { v } from "convex/values"
 
 /**
- * Store messaging angles for a project run.
+ * Store messaging angles for a user run.
  */
 export const storeMessagingAngles = mutation({
   args: {
-    projectId: v.id("projects"),
+    userId: v.id("users"),
     runId: v.id("workflowRuns"),
     angles: v.array(
       v.object({
@@ -26,7 +26,7 @@ export const storeMessagingAngles = mutation({
     const ids = []
     for (const angle of args.angles) {
       const id = await ctx.db.insert("messagingAngles", {
-        projectId: args.projectId,
+        userId: args.userId,
         runId: args.runId,
         ...angle,
         createdAt: now,
@@ -38,14 +38,26 @@ export const storeMessagingAngles = mutation({
 })
 
 /**
- * Get messaging angles for a project.
+ * Get messaging angles for the current user.
  */
 export const getMessagingAngles = query({
-  args: { projectId: v.id("projects") },
-  handler: async (ctx, args) => {
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) return []
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) =>
+        q.eq("tokenIdentifier", identity.tokenIdentifier)
+      )
+      .unique()
+
+    if (!user) return []
+
     return await ctx.db
       .query("messagingAngles")
-      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
       .collect()
   },
 })

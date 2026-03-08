@@ -1,5 +1,5 @@
-import { BackboardClient } from "backboard-sdk"
-import { NextRequest } from "next/server"
+import { streamText, convertToModelMessages } from "ai"
+import { getModel } from "@/lib/ai"
 
 const SYSTEM_PROMPT = `You are a friendly onboarding assistant for HundredUsers, a go-to-market (GTM) platform.
 
@@ -25,113 +25,16 @@ Only include the JSON block when you have gathered sufficient information. Befor
 
 Do NOT ask the user to fill out a form — you ARE the form. Extract the information from the conversation naturally.`
 
-function getClient() {
-  const apiKey = process.env.BACKBOARD_API_KEY
-  if (!apiKey) {
-    throw new Error("BACKBOARD_API_KEY environment variable is not set")
-  }
-  return new BackboardClient({ apiKey })
-}
+export async function POST(req: Request) {
+  const { messages } = await req.json()
 
-export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json()
-    const { message, assistantId, threadId } = body as {
-      message: string
-      assistantId?: string
-      threadId?: string
-    }
+  const modelMessages = await convertToModelMessages(messages)
 
-    if (!message?.trim()) {
-      return Response.json({ error: "Message is required" }, { status: 400 })
-    }
+  const result = streamText({
+    model: getModel(),
+    system: SYSTEM_PROMPT,
+    messages: modelMessages,
+  })
 
-    const client = getClient()
-
-    // Create assistant if none provided
-    let currentAssistantId = assistantId
-    if (!currentAssistantId) {
-      const assistant = await client.createAssistant({
-        name: "HundredUsers Onboarding Assistant",
-        system_prompt: SYSTEM_PROMPT,
-      })
-      currentAssistantId = assistant.assistantId
-    }
-
-    // Create thread if none provided
-    let currentThreadId = threadId
-    if (!currentThreadId) {
-      const thread = await client.createThread(currentAssistantId!)
-      currentThreadId = thread.threadId
-    }
-
-    // Send message with streaming
-    const stream = (await client.addMessage(currentThreadId!, {
-      content: message,
-      stream: true,
-      memory: "Auto",
-    })) as AsyncGenerator<Record<string, unknown>>
-
-    // Create a ReadableStream that forwards SSE events to the client
-    const encoder = new TextEncoder()
-    const readable = new ReadableStream({
-      async start(controller) {
-        try {
-          // Send metadata first
-          controller.enqueue(
-            encoder.encode(
-              `data: ${JSON.stringify({
-                type: "metadata",
-                assistantId: currentAssistantId,
-                threadId: currentThreadId,
-              })}\n\n`
-            )
-          )
-
-          for await (const chunk of stream) {
-            // Skip any chunk that carries a "role" field.
-            // Backboard emits incremental content-delta chunks
-            // (no role, just { content: "..." }) during streaming,
-            // then a final summary chunk with role="user" (echo)
-            // or role="assistant" (full message). Both would
-            // duplicate content on the client, so drop them.
-            if (chunk && typeof chunk === "object" && "role" in chunk) {
-              continue
-            }
-
-            controller.enqueue(
-              encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`)
-            )
-          }
-
-          controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify({ type: "done" })}\n\n`)
-          )
-          controller.close()
-        } catch (err) {
-          const errorMessage =
-            err instanceof Error ? err.message : "Streaming error"
-          controller.enqueue(
-            encoder.encode(
-              `data: ${JSON.stringify({ type: "error", error: errorMessage })}\n\n`
-            )
-          )
-          controller.close()
-        }
-      },
-    })
-
-    return new Response(readable, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-      },
-    })
-  } catch (err) {
-    const errorMessage =
-      err instanceof Error ? err.message : "Internal server error"
-    console.error("Onboarding chat API error:", err)
-    return Response.json({ error: errorMessage }, { status: 500 })
-  }
+  return result.toUIMessageStreamResponse()
 }

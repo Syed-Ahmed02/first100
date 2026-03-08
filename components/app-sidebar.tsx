@@ -7,8 +7,6 @@ import {
   RiDashboardLine,
   RiChat3Line,
   RiSearchEyeLine,
-  RiUserSearchLine,
-  RiMailSendLine,
   RiLogoutBoxRLine,
 } from "@remixicon/react"
 import {
@@ -17,13 +15,11 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
-  SidebarSeparator,
 } from "@/components/ui/sidebar"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
@@ -36,13 +32,8 @@ import {
 
 const mainNav = [
   { label: "Dashboard", href: "/dashboard", icon: RiDashboardLine },
-  { label: "Chat", href: "/chat", icon: RiChat3Line },
-]
-
-const pipelineNav = [
   { label: "Research", href: "/research", icon: RiSearchEyeLine },
-  { label: "Leads", href: "/leads", icon: RiUserSearchLine },
-  { label: "Outreach", href: "/outreach", icon: RiMailSendLine },
+  { label: "Chat", href: "/chat", icon: RiChat3Line },
 ]
 
 export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
@@ -101,31 +92,6 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarSeparator />
-
-        {/* Pipeline navigation */}
-        <SidebarGroup>
-          <SidebarGroupLabel>Pipeline</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {pipelineNav.map((item) => {
-                const isActive = pathname.startsWith(item.href)
-                return (
-                  <SidebarMenuItem key={item.label}>
-                    <SidebarMenuButton
-                      isActive={isActive}
-                      tooltip={item.label}
-                      render={<Link href={item.href} />}
-                    >
-                      <item.icon />
-                      <span>{item.label}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                )
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
       </SidebarContent>
 
       <SidebarFooter>

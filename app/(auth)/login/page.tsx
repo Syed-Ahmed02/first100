@@ -1,7 +1,6 @@
 "use client"
 
 import { useAuth0 } from "@auth0/auth0-react"
-import { useConvex } from "convex/react"
 import { useRouter } from "next/navigation"
 import { useEffect } from "react"
 import {
@@ -14,7 +13,6 @@ import {
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { api } from "@/convex/_generated/api"
 
 export default function LoginPage() {
   const {
@@ -22,7 +20,6 @@ export default function LoginPage() {
     isAuthenticated,
     error,
     loginWithRedirect,
-    user,
   } = useAuth0()
   const router = useRouter()
 

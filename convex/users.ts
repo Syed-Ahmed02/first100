@@ -1,5 +1,6 @@
 import { mutation, query } from "./_generated/server"
 import { v } from "convex/values"
+import { PIPELINE_STEPS, type PipelineStep } from "./workflows"
 
 /**
  * Get or create the current authenticated user.
@@ -82,6 +83,24 @@ export const completeOnboarding = mutation({
       onboardingComplete: true,
     })
 
-    return user._id
+    const now = Date.now()
+    const runId = await ctx.db.insert("workflowRuns", {
+      userId: user._id,
+      status: "pending",
+      createdAt: now,
+    })
+
+    for (const step of PIPELINE_STEPS) {
+      await ctx.db.insert("workflowSteps", {
+        runId,
+        userId: user._id,
+        step: step as PipelineStep,
+        status: "pending",
+        retryCount: 0,
+        createdAt: now,
+      })
+    }
+
+    return { userId: user._id, runId }
   },
 })

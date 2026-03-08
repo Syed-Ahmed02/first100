@@ -2,6 +2,9 @@
 
 import { useState, useRef, useEffect, useCallback } from "react"
 import { useMutation, useQuery } from "convex/react"
+import { useChat } from "@ai-sdk/react"
+import type { UIMessage } from "ai"
+import { useSearchParams } from "next/navigation"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
 import { Button } from "@/components/ui/button"
@@ -18,13 +21,18 @@ import {
   RiStopCircleLine,
 } from "@remixicon/react"
 
-type ChatMessage = {
-  id: string
-  role: "user" | "assistant"
-  content: string
+/** Extract plain text from a UIMessage's parts array */
+function getTextFromParts(msg: UIMessage): string {
+  return msg.parts
+    .filter((p): p is { type: "text"; text: string } => p.type === "text")
+    .map((p) => p.text)
+    .join("")
 }
 
 export default function ChatPage() {
+  const searchParams = useSearchParams()
+  const initialQuery = searchParams.get("q")?.trim() ?? ""
+
   // Convex queries/mutations
   const threads = useQuery(api.chat.listThreads)
   const createThread = useMutation(api.chat.createThread)
@@ -35,66 +43,85 @@ export default function ChatPage() {
   const [activeThreadId, setActiveThreadId] = useState<Id<"chatThreads"> | null>(
     null
   )
-  const activeThread = useQuery(
-    api.chat.getThread,
-    activeThreadId ? { threadId: activeThreadId } : "skip"
-  )
   const persistedMessages = useQuery(
     api.chat.listMessages,
     activeThreadId ? { threadId: activeThreadId } : "skip"
   )
 
-  // Local state
-  const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [input, setInput] = useState("")
-  const [isStreaming, setIsStreaming] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const abortRef = useRef<AbortController | null>(null)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  // Track the active thread ID in a ref so callbacks always see the latest value
+  const activeThreadIdRef = useRef(activeThreadId)
+
+  useEffect(() => {
+    activeThreadIdRef.current = activeThreadId
+  }, [activeThreadId])
+
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  // Backboard IDs for the active thread (from Convex or from new creation)
-  const backboardAssistantId = activeThread?.backboardAssistantId ?? null
-  const backboardThreadId = activeThread?.backboardThreadId ?? null
+  // Vercel AI SDK useChat hook
+  const {
+    messages,
+    setMessages,
+    sendMessage,
+    stop,
+    status,
+    error,
+  } = useChat({
+    onFinish: async ({ message }) => {
+      // Persist the assistant message to Convex once streaming is done
+      const threadId = activeThreadIdRef.current
+      if (threadId && message.role === "assistant") {
+        const textContent = getTextFromParts(message)
+        if (textContent) {
+          await saveMessage({
+            threadId,
+            role: "assistant",
+            content: textContent,
+          })
+        }
+      }
+    },
+  })
 
-  // Sync persisted messages into local state when switching threads.
-  // Skip sync while streaming to avoid duplicating the in-flight messages.
+  const isStreaming = status === "streaming" || status === "submitted"
+
+  // Sync persisted messages into useChat state when switching threads
   useEffect(() => {
     if (persistedMessages && !isStreaming) {
       setMessages(
         persistedMessages.map((m) => ({
           id: m._id,
-          role: m.role,
-          content: m.content,
+          role: m.role as "user" | "assistant",
+          parts: [{ type: "text" as const, text: m.content }],
         }))
       )
     }
-  }, [persistedMessages, isStreaming])
-
-  // Auto-scroll to bottom on new messages
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages])
+  }, [persistedMessages, isStreaming, setMessages])
 
   // Auto-resize textarea
+  const [inputValue, setInputValue] = useState(initialQuery)
+
   useEffect(() => {
     const el = textareaRef.current
     if (el) {
       el.style.height = "auto"
       el.style.height = Math.min(el.scrollHeight, 200) + "px"
     }
-  }, [input])
+  }, [inputValue])
+
+  // Auto-scroll
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [messages])
 
   const handleNewThread = useCallback(() => {
     setActiveThreadId(null)
     setMessages([])
-    setInput("")
-    setError(null)
-  }, [])
+    setInputValue("")
+  }, [setMessages])
 
   const handleSelectThread = useCallback((id: Id<"chatThreads">) => {
     setActiveThreadId(id)
-    setError(null)
   }, [])
 
   const handleDeleteThread = useCallback(
@@ -107,169 +134,40 @@ export default function ChatPage() {
     [deleteThread, activeThreadId, handleNewThread]
   )
 
-  const stopStreaming = useCallback(() => {
-    abortRef.current?.abort()
-    setIsStreaming(false)
-  }, [])
-
-  const sendMessage = useCallback(async () => {
-    const text = input.trim()
+  const handleSend = useCallback(async () => {
+    const text = inputValue.trim()
     if (!text || isStreaming) return
 
-    setInput("")
-    setError(null)
+    setInputValue("")
 
-    // Add user message to UI
-    const userMsg: ChatMessage = {
-      id: `user-${Date.now()}`,
+    // Create Convex thread if this is the first message in a new conversation
+    let threadId = activeThreadIdRef.current
+    if (!threadId) {
+      const title = text.length > 50 ? text.slice(0, 50) + "..." : text
+      threadId = await createThread({ title })
+      setActiveThreadId(threadId)
+      activeThreadIdRef.current = threadId
+    }
+
+    // Persist user message to Convex
+    await saveMessage({
+      threadId,
       role: "user",
       content: text,
-    }
-    setMessages((prev) => [...prev, userMsg])
+    })
 
-    // Add placeholder for assistant response
-    const assistantMsgId = `assistant-${Date.now()}`
-    const assistantMsg: ChatMessage = {
-      id: assistantMsgId,
-      role: "assistant",
-      content: "",
-    }
-    setMessages((prev) => [...prev, assistantMsg])
-
-    setIsStreaming(true)
-    const controller = new AbortController()
-    abortRef.current = controller
-
-    let currentConvexThreadId = activeThreadId
-    let currentAssistantId = backboardAssistantId
-    let currentBackboardThreadId = backboardThreadId
-
-    try {
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: text,
-          assistantId: currentAssistantId,
-          threadId: currentBackboardThreadId,
-        }),
-        signal: controller.signal,
-      })
-
-      if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.error || "Chat request failed")
-      }
-
-      const reader = res.body?.getReader()
-      if (!reader) throw new Error("No response stream")
-
-      const decoder = new TextDecoder()
-      let buffer = ""
-      let fullContent = ""
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split("\n")
-        buffer = lines.pop() || ""
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue
-          try {
-            const data = JSON.parse(line.slice(6))
-
-            if (data.type === "metadata") {
-              currentAssistantId = data.assistantId
-              currentBackboardThreadId = data.threadId
-
-              // If no Convex thread yet, create one now
-              if (!currentConvexThreadId) {
-                const title =
-                  text.length > 50 ? text.slice(0, 50) + "..." : text
-                const newId = await createThread({
-                  backboardAssistantId: data.assistantId,
-                  backboardThreadId: data.threadId,
-                  title,
-                })
-                currentConvexThreadId = newId
-                setActiveThreadId(newId)
-              }
-            } else if (data.type === "error") {
-              throw new Error(data.error || "Streaming error")
-            } else if (data.type === "done") {
-              // Stream complete
-            } else if (data.content) {
-              // Content chunk from Backboard
-              fullContent += data.content
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === assistantMsgId
-                    ? { ...m, content: fullContent }
-                    : m
-                )
-              )
-            }
-          } catch (parseErr) {
-            if (parseErr instanceof Error && parseErr.message !== "Streaming error") {
-              // JSON parse error, skip
-              continue
-            }
-            throw parseErr
-          }
-        }
-      }
-
-      // Persist messages to Convex
-      if (currentConvexThreadId) {
-        await saveMessage({
-          threadId: currentConvexThreadId,
-          role: "user",
-          content: text,
-        })
-        if (fullContent) {
-          await saveMessage({
-            threadId: currentConvexThreadId,
-            role: "assistant",
-            content: fullContent,
-          })
-        }
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") {
-        // User cancelled
-      } else {
-        const msg = err instanceof Error ? err.message : "Something went wrong"
-        setError(msg)
-        // Remove the empty assistant placeholder on error
-        setMessages((prev) =>
-          prev.filter((m) => m.id !== assistantMsgId || m.content)
-        )
-      }
-    } finally {
-      setIsStreaming(false)
-      abortRef.current = null
-    }
-  }, [
-    input,
-    isStreaming,
-    activeThreadId,
-    backboardAssistantId,
-    backboardThreadId,
-    createThread,
-    saveMessage,
-  ])
+    // Send via AI SDK (triggers streaming)
+    sendMessage({ text })
+  }, [inputValue, isStreaming, createThread, saveMessage, sendMessage])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault()
-        sendMessage()
+        handleSend()
       }
     },
-    [sendMessage]
+    [handleSend]
   )
 
   return (
@@ -348,42 +246,46 @@ export default function ChatPage() {
             </div>
           ) : (
             <div className="mx-auto max-w-3xl px-4 py-6">
-              {messages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={cn(
-                    "mb-6 flex gap-3",
-                    msg.role === "user" ? "justify-end" : "justify-start"
-                  )}
-                >
-                  {msg.role === "assistant" && (
-                    <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10">
-                      <RiRobot2Line className="h-4 w-4 text-primary" />
-                    </div>
-                  )}
+              {messages.map((msg) => {
+                const textContent = getTextFromParts(msg)
+
+                return (
                   <div
+                    key={msg.id}
                     className={cn(
-                      "max-w-[80%] rounded-lg px-4 py-2.5 text-sm leading-relaxed",
-                      msg.role === "user"
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted"
+                      "mb-6 flex gap-3",
+                      msg.role === "user" ? "justify-end" : "justify-start"
                     )}
                   >
-                    {msg.content || (
-                      <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
-                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current [animation-delay:150ms]" />
-                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current [animation-delay:300ms]" />
-                      </span>
+                    {msg.role === "assistant" && (
+                      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                        <RiRobot2Line className="h-4 w-4 text-primary" />
+                      </div>
+                    )}
+                    <div
+                      className={cn(
+                        "max-w-[80%] rounded-lg px-4 py-2.5 text-sm leading-relaxed",
+                        msg.role === "user"
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted"
+                      )}
+                    >
+                      {textContent || (
+                        <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
+                          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current [animation-delay:150ms]" />
+                          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current [animation-delay:300ms]" />
+                        </span>
+                      )}
+                    </div>
+                    {msg.role === "user" && (
+                      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-foreground/10">
+                        <RiUser3Line className="h-4 w-4" />
+                      </div>
                     )}
                   </div>
-                  {msg.role === "user" && (
-                    <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-foreground/10">
-                      <RiUser3Line className="h-4 w-4" />
-                    </div>
-                  )}
-                </div>
-              ))}
+                )
+              })}
               <div ref={messagesEndRef} />
             </div>
           )}
@@ -393,7 +295,7 @@ export default function ChatPage() {
         {error && (
           <div className="mx-auto max-w-3xl px-4">
             <div className="mb-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-              {error}
+              {error.message}
             </div>
           </div>
         )}
@@ -404,18 +306,18 @@ export default function ChatPage() {
             <Textarea
               ref={textareaRef}
               placeholder="Ask about GTM strategy..."
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}
               disabled={isStreaming}
               rows={1}
-              className="min-h-[2.5rem] max-h-[200px] resize-none"
+              className="min-h-10 max-h-[200px] resize-none"
             />
             {isStreaming ? (
               <Button
                 variant="outline"
                 size="icon"
-                onClick={stopStreaming}
+                onClick={() => stop()}
                 title="Stop"
               >
                 <RiStopCircleLine className="h-4 w-4" />
@@ -423,8 +325,8 @@ export default function ChatPage() {
             ) : (
               <Button
                 size="icon"
-                onClick={sendMessage}
-                disabled={!input.trim()}
+                onClick={handleSend}
+                disabled={!inputValue.trim()}
                 title="Send"
               >
                 <RiSendPlaneFill className="h-4 w-4" />
@@ -432,7 +334,7 @@ export default function ChatPage() {
             )}
           </div>
           <p className="mx-auto mt-2 max-w-3xl text-center text-[10px] text-muted-foreground">
-            Powered by Backboard AI. Responses may not always be accurate.
+            Powered by OpenRouter. Responses may not always be accurate.
           </p>
         </div>
       </div>

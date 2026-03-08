@@ -81,35 +81,25 @@ export const IcpSegmentSchema = z.object({
   segmentName: z.string().describe("Name of the ICP segment"),
   isPrimary: z.boolean().describe("Whether this is the primary target segment"),
   jobTitles: z.array(z.string()).describe("Common job titles in this segment"),
-  seniorityLevels: z
-    .array(z.string())
-    .optional()
-    .describe("Typical seniority levels"),
+  seniorityLevels: z.array(z.string()).describe("Typical seniority levels"),
   industries: z.array(z.string()).describe("Target industries"),
   companySizeRange: z
     .string()
-    .optional()
-    .describe("Company size range, e.g. '50-200'"),
-  geographies: z.array(z.string()).optional().describe("Target geographies"),
-  responsibilities: z
-    .array(z.string())
-    .optional()
-    .describe("Key responsibilities"),
-  goals: z
-    .array(z.string())
-    .optional()
-    .describe("What this persona is trying to achieve"),
+    .describe("Company size range, e.g. '50-200'. Use an empty string if unknown."),
+  geographies: z.array(z.string()).describe("Target geographies"),
+  responsibilities: z.array(z.string()).describe("Key responsibilities"),
+  goals: z.array(z.string()).describe("What this persona is trying to achieve"),
   challenges: z
     .array(z.string())
-    .optional()
     .describe("Major challenges and frustrations"),
   confidenceScore: z
     .number()
     .min(0)
     .max(1)
-    .optional()
     .describe("Confidence score 0-1"),
-  reasoning: z.string().optional().describe("Why this segment was identified"),
+  reasoning: z
+    .string()
+    .describe("Why this segment was identified. Use an empty string if brief."),
 })
 export type IcpSegment = z.infer<typeof IcpSegmentSchema>
 
@@ -126,16 +116,22 @@ export type IcpAgentOutput = z.infer<typeof IcpAgentOutputSchema>
 
 export const DiscussionSourceSchema = z.object({
   sourceType: z.enum(["reddit", "hackernews", "forum", "review_site", "other"]),
-  url: z.string().url(),
-  postId: z.string().optional(),
-  title: z.string().optional(),
+  url: z
+    .string()
+    .describe("Source URL. Return the full URL string, or an empty string if unavailable."),
+  postId: z.string().describe("Platform-specific ID. Use an empty string if unavailable."),
+  title: z.string().describe("Source title. Use an empty string if unavailable."),
   body: z.string(),
-  author: z.string().optional(),
-  community: z.string().optional(),
-  score: z.number().optional(),
-  commentCount: z.number().optional(),
-  postedAt: z.number().optional(),
-  relevanceScore: z.number().min(0).max(1).optional(),
+  author: z.string().describe("Author name. Use an empty string if unavailable."),
+  community: z
+    .string()
+    .describe("Community or forum name. Use an empty string if unavailable."),
+  score: z.number().describe("Engagement score. Use 0 if unavailable."),
+  commentCount: z.number().describe("Comment count. Use 0 if unavailable."),
+  postedAt: z
+    .number()
+    .describe("Unix timestamp in ms. Use 0 if unavailable."),
+  relevanceScore: z.number().min(0).max(1),
 })
 export type DiscussionSource = z.infer<typeof DiscussionSourceSchema>
 
@@ -157,8 +153,7 @@ export const PainPointSchema = z.object({
   description: z.string().describe("Detailed description of the pain point"),
   category: z
     .string()
-    .optional()
-    .describe("Category: usability, pricing, integration, etc."),
+    .describe("Category: usability, pricing, integration, etc. Use an empty string if none."),
   frequency: z.number().describe("How many sources mention this"),
   sentiment: z.enum(["very_negative", "negative", "neutral", "mixed"]),
   confidenceScore: z.number().min(0).max(1),
@@ -181,20 +176,16 @@ export const MessagingAngleSchema = z.object({
   hooks: z.array(z.string()).describe("Attention-grabbing hooks"),
   ctaVariants: z
     .array(z.string())
-    .optional()
     .describe("Call-to-action variants"),
   landingPageCopy: z
     .string()
-    .optional()
-    .describe("Suggested landing page copy"),
+    .describe("Suggested landing page copy. Use an empty string if not provided."),
   targetSegment: z
     .string()
-    .optional()
-    .describe("Which ICP segment this targets"),
+    .describe("Which ICP segment this targets. Use an empty string if broad."),
   channel: z
     .string()
-    .optional()
-    .describe("Intended channel: email, linkedin, ad, etc."),
+    .describe("Intended channel: email, linkedin, ad, etc. Use an empty string if unspecified."),
 })
 export type MessagingAngle = z.infer<typeof MessagingAngleSchema>
 
@@ -208,16 +199,18 @@ export type MessagingAgentOutput = z.infer<typeof MessagingAgentOutputSchema>
 export const LeadSchema = z.object({
   firstName: z.string(),
   lastName: z.string(),
-  title: z.string().optional(),
-  email: z.string().email().optional(),
-  linkedinUrl: z.string().url().optional(),
-  companyName: z.string().optional(),
-  companyDomain: z.string().optional(),
-  companyDescription: z.string().optional(),
-  companySize: z.string().optional(),
-  industry: z.string().optional(),
+  title: z.string().describe("Job title. Use an empty string if unavailable."),
+  email: z.string().describe("Email address. Use an empty string if unavailable."),
+  linkedinUrl: z.string().describe("LinkedIn URL. Use an empty string if unavailable."),
+  companyName: z.string().describe("Company name. Use an empty string if unavailable."),
+  companyDomain: z.string().describe("Company domain. Use an empty string if unavailable."),
+  companyDescription: z
+    .string()
+    .describe("Company description. Use an empty string if unavailable."),
+  companySize: z.string().describe("Company size. Use an empty string if unavailable."),
+  industry: z.string().describe("Industry. Use an empty string if unavailable."),
   source: z.string().describe("Provider that returned this lead"),
-  confidence: z.number().min(0).max(1).optional(),
+  confidence: z.number().min(0).max(1),
 })
 export type Lead = z.infer<typeof LeadSchema>
 
@@ -234,11 +227,10 @@ export type LeadAgentOutput = z.infer<typeof LeadAgentOutputSchema>
 
 export const OutreachDraftSchema = z.object({
   channel: z.enum(["email", "linkedin", "twitter", "other"]),
-  subject: z.string().optional(),
+  subject: z.string().describe("Subject line. Use an empty string for non-email drafts."),
   body: z.string(),
   personalizationInputs: z
     .record(z.string(), z.string())
-    .optional()
     .describe("Key personalization data used"),
 })
 export type OutreachDraft = z.infer<typeof OutreachDraftSchema>
