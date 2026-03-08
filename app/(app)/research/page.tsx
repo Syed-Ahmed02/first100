@@ -23,11 +23,12 @@ import { AgentRunTimeline } from "@/components/agent-run-timeline"
 import { StreamingStepState } from "@/components/streaming-step-state"
 import { IcpPanel } from "@/components/icp-panel"
 import { PainPointsPanel } from "@/components/pain-points-panel"
+import { DiscussionSourcesPanel } from "@/components/discussion-sources-panel"
 import { STEP_DISPLAY } from "@/lib/validation"
 import type { PipelineStep } from "@/lib/validation"
 import { RiRefreshLine } from "@remixicon/react"
 
-const validTabs = ["overview", "icp", "pain-points", "pipeline"] as const
+const validTabs = ["overview", "icp", "sources", "pain-points", "pipeline"] as const
 
 type ResearchTab = (typeof validTabs)[number]
 
@@ -47,6 +48,7 @@ export default function ResearchPage() {
   const latestRun = useQuery(api.workflows.getLatestRun)
   const steps = useQuery(api.workflows.getCurrentUserSteps)
   const icpProfiles = useQuery(api.research.getIcpProfiles)
+  const discussionSources = useQuery(api.research.getDiscussionSources)
   const painPoints = useQuery(api.research.getPainPoints)
   const resetRunFromStep = useMutation(api.workflows.resetRunFromStep)
 
@@ -321,7 +323,7 @@ export default function ResearchPage() {
             </Card>
           )}
 
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-4">
             <Card>
               <CardContent className="pt-6">
                 <p className="text-2xl font-semibold">{completedCount}</p>
@@ -346,6 +348,14 @@ export default function ResearchPage() {
                 </p>
               </CardContent>
             </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-2xl font-semibold">
+                  {discussionSources?.length ?? 0}
+                </p>
+                <p className="text-sm text-muted-foreground">Sources collected</p>
+              </CardContent>
+            </Card>
           </div>
 
           <Tabs
@@ -355,12 +365,14 @@ export default function ResearchPage() {
             <TabsList>
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="icp">ICP</TabsTrigger>
+              <TabsTrigger value="sources">Sources</TabsTrigger>
               <TabsTrigger value="pain-points">Pain Points</TabsTrigger>
               <TabsTrigger value="pipeline">Pipeline</TabsTrigger>
             </TabsList>
 
             <TabsContent value="overview" className="mt-4 space-y-4">
               <IcpPanel profiles={icpProfiles as never} />
+              <DiscussionSourcesPanel sources={discussionSources as never} />
               <PainPointsPanel painPoints={painPoints as never} />
             </TabsContent>
 
@@ -370,6 +382,10 @@ export default function ResearchPage() {
 
             <TabsContent value="pain-points" className="mt-4">
               <PainPointsPanel painPoints={painPoints as never} />
+            </TabsContent>
+
+            <TabsContent value="sources" className="mt-4">
+              <DiscussionSourcesPanel sources={discussionSources as never} />
             </TabsContent>
 
             <TabsContent value="pipeline" className="mt-4">

@@ -10,6 +10,7 @@
  */
 
 import { NextRequest } from "next/server"
+import { after } from "next/server"
 import { runResearchPipeline } from "@/lib/workflows"
 import type { Id } from "@/convex/_generated/dataModel"
 import type { PipelineStep } from "@/lib/validation"
@@ -38,29 +39,23 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Run the pipeline without awaiting (fire-and-forget style with error handling).
-    // We use waitUntil-like pattern: start the promise, handle errors internally,
-    // and return immediately so the client doesn't timeout.
-    //
-    // The pipeline reports progress via Convex mutations, so the dashboard
-    // updates in real-time via Convex subscriptions.
-    const pipelinePromise = runResearchPipeline({
-      userId: userId as Id<"users">,
-      runId: runId as Id<"workflowRuns">,
-      productDescription,
-      targetAudience: targetAudience ?? "",
-      startFromStep,
+    // Schedule the pipeline as an after-response task so it can keep running
+    // even after the HTTP response has been sent.
+    after(async () => {
+      try {
+        await runResearchPipeline({
+          userId: userId as Id<"users">,
+          runId: runId as Id<"workflowRuns">,
+          productDescription,
+          targetAudience: targetAudience ?? "",
+          startFromStep,
+        })
+      } catch (err) {
+        console.error("Pipeline execution error:", err)
+      }
     })
 
-    // For deployments that support waitUntil (e.g. Vercel), use it.
-    // Otherwise the pipeline runs as a detached promise.
-    // Since Next.js 16 route handlers can be long-running with maxDuration,
-    // we await the pipeline to ensure it completes.
-    pipelinePromise.catch((err) => {
-      console.error("Pipeline execution error:", err)
-    })
-
-    // Return immediately — the pipeline reports progress via Convex
+    // Return immediately — progress is streamed via Convex subscriptions.
     return Response.json({
       status: "started",
       userId,
