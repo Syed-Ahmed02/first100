@@ -1,6 +1,6 @@
 ---
 name: gtm-agent-v1
-overview: Implement a broader v1 AI GTM platform in this Next.js app using a multi-agent workflow, Convex-backed persistence/orchestration, direct Reddit web scraping, Apollo lead extraction through Apify Store actors, and a shadcn/ui plus AI Elements-oriented interface.
+overview: Implement a broader v1 AI GTM platform in this Next.js app using a multi-agent workflow, Convex-backed persistence/orchestration, Exa AI SDK-based discussion discovery and evidence retrieval, Apollo lead extraction through Apify Store actors, and a shadcn/ui plus AI Elements-oriented interface.
 todos:
   - id: define-domain-model
     content: Design Convex schema and workflow entities for projects, evidence, pain points, messaging, leads, outreach, and run status.
@@ -12,7 +12,7 @@ todos:
     content: Add AI helpers and zod schemas for agent outputs including ICP research, pain-point synthesis, messaging generation, and outreach creation.
     status: pending
   - id: add-discussion-provider-layer
-    content: Create a provider abstraction for online discussion sources and implement Exa-powered discovery plus Browserbase or Puppeteer-backed Reddit web scraping for normalized evidence storage.
+    content: Create a provider abstraction for online discussion sources and implement Exa AI SDK-powered discovery plus discussion-source normalization for evidence storage.
     status: pending
   - id: add-lead-provider-layer
     content: Create a normalized lead generation adapter interface and wire Apollo scraping through an Apify Store actor as the first implementation.
@@ -105,19 +105,17 @@ Recommended concrete stack for this repo:
 - frontend/app shell: `Next.js 16 App Router`, `React 19`, `Tailwind CSS`, `shadcn/ui`, and `AI Elements`-style generated-content components
 - state/persistence/workflows: `Convex`
 - **LLM / conversational AI: [Backboard API](https://docs.backboard.io/) and `backboard-sdk`** — assistants, threads, messages, memory, optional document upload; use `zod` for structured parsing of agent outputs where needed
-- research discovery: `Exa`
-- Reddit acquisition: public Reddit web scraping without using the Reddit API
-- page fetching / scraping runtime: `Browserbase` + `Puppeteer`
+- research discovery and source-content retrieval: `Exa` via `@exalabs/ai-sdk` and Vercel AI SDK
+- discussion-source targeting: hardcoded allowlist for discussion-heavy sites (e.g. Reddit, Hacker News, Product Hunt, Indie Hackers, G2, Capterra, TrustRadius, Quora, Stack Overflow)
 - lead data: `Apollo` scraped through an `Apify Store` actor behind a provider abstraction
 - observability: persisted step logs and run metadata in `Convex` only for now
 
 How these fit:
 
 - **Backboard** (hackathon sponsor) provides persistent conversations, assistants with custom instructions and tools, and shared memory — map each agent role (e.g. ICP, Research, Pain Synthesis, Messaging, Lead, Outreach) to Backboard assistants; use one thread per workflow step or run and `addMessage` for structured generation; optionally use Backboard memory for cross-step context.
-- `Exa` is a strong choice for finding high-signal discussions, threads, and long-tail complaint pages quickly
-- direct Reddit scraping keeps the research flow independent of Reddit API limits and app approval requirements
-- `Browserbase` makes sense when Reddit pages or other sources require resilient, JS-rendered browsing at scale
-- `Puppeteer` is the execution layer for deterministic extraction flows inside Browserbase or local/server runtimes
+- `Exa` is the primary search and content-retrieval layer for finding high-signal discussions, threads, and long-tail complaint pages quickly
+- the Vercel AI SDK integration keeps research discovery and evidence extraction in the same tool-driven flow
+- hardcoded discussion-site filtering reduces noisy general-web results and keeps evidence focused on real discussion communities
 - `Apify Store` provides a clean way to operationalize Apollo scraping behind a hosted actor instead of building that scraper from scratch
 - Backboard supports configurable LLM provider and model per request (`llm_provider`, `model_name`) so agent models can be swapped without rewriting orchestration
 
@@ -129,9 +127,8 @@ How these fit:
 - `shadcn/ui` for forms, cards, tables, drawers, tabs, and dashboard layout primitives.
 - `AI Elements` patterns/components for agent status, generated text blocks, message previews, and streaming/loading states.
 - `External provider adapters` for:
-  - search/discovery: Exa first
-  - social discussion ingestion: Reddit first via public page scraping, designed to support more sources later
-  - browser extraction: Browserbase and Puppeteer for JS-rendered pages and resilient scraping
+  - search/discovery and evidence retrieval: Exa first via `@exalabs/ai-sdk`
+  - social discussion ingestion: discussion-site allowlisted web discovery, designed to support more sources later
   - lead enrichment/search: Apollo via Apify Store actor first, wrapped in a provider abstraction
 - `Typed multi-agent orchestration` that runs step-by-step and stores intermediate outputs so the dashboard can update incrementally.
 
@@ -190,9 +187,8 @@ Recommended module layout:
 - `convex/http.ts` if webhook/provider callbacks are needed later
 - `lib/ai/` for prompt builders and structured generation helpers
 - `lib/agents/` for per-agent prompts, contracts, and runners
-- `lib/providers/exa/` for search and result normalization
-- `lib/providers/reddit/` for scrape/fetch/normalize logic against public Reddit pages
-- `lib/providers/browser/` for Browserbase/Puppeteer extraction flows
+- `lib/providers/exa/` for Exa AI SDK search, allowlisted discussion discovery, and result normalization
+- `lib/providers/reddit/` for Reddit-specific discussion filtering and normalization on top of Exa results
 - `lib/providers/apify/` for Apify client and actor execution helpers
 - `lib/providers/apollo/` for Apollo lead normalization from Apify actor output
 - `lib/providers/leads/` for provider adapters and a common interface
@@ -218,10 +214,10 @@ Recommended pipeline:
 1. Discussion discovery
 
 - Use `Exa` to discover relevant discussions and landing URLs.
-- Scrape public Reddit thread and comment pages directly without using the Reddit API.
-- Use `Browserbase` or `Puppeteer` when Reddit pages or linked sources require rendered extraction.
-- Normalize posts, comments, authors, timestamps, and thread URLs into `discussionSources`.
-- Store raw evidence, not just summaries.
+- Restrict discovery to approved discussion-heavy domains.
+- Retrieve page text, summaries, and highlights directly from `Exa`.
+- Normalize URLs, authors, timestamps, communities, and extracted complaint text into `discussionSources`.
+- Store raw evidence derived from Exa-returned content, not just summaries.
 
 1. Pain-point synthesis
 
@@ -284,11 +280,10 @@ For the broader v1 you selected, keep integrations behind interfaces from day on
 
 Research adapters:
 
-- Start with `Exa` for search/discovery because it broadens coverage immediately.
-- Add `Reddit` as the first deep source implementation via public web scraping because it fits the product promise well.
+- Start with `Exa` for search/discovery and source content retrieval because it broadens coverage immediately.
+- Layer Reddit-specific normalization on top of Exa results rather than maintaining a separate scraping runtime.
 - Define a generic `DiscussionProvider` so X, Hacker News, G2, LinkedIn, or forums can be added later without rewriting synthesis logic.
-- Define a generic `BrowserExtractionProvider` so Browserbase and local Puppeteer flows can share normalization logic.
-- Persist both cleaned text and enough page metadata or snapshots to debug scraper quality.
+- Persist both cleaned text and enough Exa-returned metadata to debug evidence quality.
 
 Lead adapters:
 
@@ -306,7 +301,7 @@ AI generation (Backboard):
 ## Reliability and Product Safeguards
 
 - Persist raw source evidence so users can inspect why a pain point was produced.
-- Add deduplication and spam filtering for scraped discussions.
+- Add deduplication and spam filtering for discussion-search results.
 - Add per-step retry/error states in `workflowRuns`.
 - Separate `draft` vs `approved` campaign assets if editing is added later.
 - Keep secrets server-only and avoid exposing provider keys to the client.
@@ -329,9 +324,9 @@ Build the product skeleton and orchestration substrate:
 Build the market-research side first:
 
 - `ICPAgent`
-- `Exa` discovery integration
-- direct `Reddit` scraping without the Reddit API
-- `Browserbase` or `Puppeteer` extraction fallback
+- `Exa` discovery and content integration via `@exalabs/ai-sdk`
+- discussion-site allowlisting for research quality control
+- evidence extraction directly from Exa-returned content
 - pain-point clustering with evidence and citations
 
 ### Plan 3: Campaign Agent System
@@ -365,9 +360,8 @@ Make the system robust and explainable:
 - [convex/research.ts](convex/research.ts): source discovery, extraction orchestration, and evidence persistence
 - [lib/ai/](lib/ai/) or `lib/backboard/`: Backboard client wrapper, assistant/thread helpers, and structured output parsing (e.g. with `zod`)
 - [lib/agents/](lib/agents/): per-agent prompts, Backboard assistant configs (system prompts, tools), and step runners using Backboard threads/messages
-- [lib/providers/exa/](lib/providers/exa/): search and result normalization
-- [lib/providers/reddit/](lib/providers/reddit/): public Reddit scraping and normalization
-- [lib/providers/browser/](lib/providers/browser/): Browserbase/Puppeteer extraction flows
+- [lib/providers/exa/](lib/providers/exa/): Exa AI SDK search, allowlisted discussion discovery, and result normalization
+- [lib/providers/reddit/](lib/providers/reddit/): Reddit-specific filtering and normalization on top of Exa results
 - [lib/providers/apify/](lib/providers/apify/): actor execution helpers
 - [lib/providers/apollo/](lib/providers/apollo/): Apollo normalization over Apify actor output
 - [lib/providers/leads/](lib/providers/leads/): lead search abstraction
@@ -381,8 +375,8 @@ Make the system robust and explainable:
 - Favor small deterministic prompts with schemas over a monolithic “do everything” prompt.
 - Build the system so each agent stage can be rerun independently.
 - Design the dashboard around traceability: every major insight should be linked back to evidence.
-- Keep discovery separate from extraction so search providers and scraping providers can evolve independently.
-- Keep Reddit scraping resilient by separating URL discovery, page fetch, DOM extraction, text cleanup, and evidence scoring into separate functions.
+- Keep discovery separate from extraction so search and evidence-normalization logic can evolve independently.
+- Keep discussion-source normalization modular so source-specific heuristics can improve without adding another scraping runtime.
 - Store enough metadata from the Apollo Apify actor run to rehydrate, debug, or replay lead imports without changing downstream lead schemas.
 
 ## Definition of Done For V1
