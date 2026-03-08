@@ -7,6 +7,7 @@ import {
   RiDashboardLine,
   RiChat3Line,
   RiSearchEyeLine,
+  RiSettings3Line,
   RiLogoutBoxRLine,
 } from "@remixicon/react"
 import {
@@ -34,6 +35,7 @@ const mainNav = [
   { label: "Dashboard", href: "/dashboard", icon: RiDashboardLine },
   { label: "Research", href: "/research", icon: RiSearchEyeLine },
   { label: "Chat", href: "/chat", icon: RiChat3Line },
+  { label: "Brief", href: "/settings/brief", icon: RiSettings3Line },
 ]
 
 export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {

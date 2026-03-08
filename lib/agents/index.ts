@@ -12,3 +12,12 @@ export {
   runPainSynthesisAgent,
   type PainSynthesisInput,
 } from "./pain-synthesis-agent"
+export {
+  runMessagingAgent,
+  type MessagingAgentInput,
+} from "./messaging-agent"
+export { runLeadAgent, type LeadAgentInput } from "./lead-agent"
+export {
+  runOutreachAgent,
+  type OutreachAgentInput,
+} from "./outreach-agent"

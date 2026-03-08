@@ -7,8 +7,6 @@
  * 2. Discussion Discovery (Exa search)
  * 3. Evidence Extraction (Exa search contents)
  * 4. Pain Synthesis
- *
- * Phase 3 steps (not implemented here):
  * 5. Messaging Generation
  * 6. Lead Generation
  * 7. Outreach Generation
@@ -22,8 +20,16 @@ import { runIcpAgent } from "@/lib/agents/icp-agent"
 import { generateSearchQueries } from "@/lib/agents/research-discovery-agent"
 import { runEvidenceExtractionAgent } from "@/lib/agents/evidence-extraction-agent"
 import { runPainSynthesisAgent } from "@/lib/agents/pain-synthesis-agent"
+import { runMessagingAgent } from "@/lib/agents/messaging-agent"
+import { runLeadAgent } from "@/lib/agents/lead-agent"
+import { runOutreachAgent } from "@/lib/agents/outreach-agent"
 import { searchDiscussions } from "@/lib/providers/exa"
-import type { PipelineStep } from "@/lib/validation"
+import type {
+  Lead,
+  MessagingAngle,
+  PainPoint,
+  PipelineStep,
+} from "@/lib/validation"
 
 export interface PipelineInput {
   userId: Id<"users">
@@ -40,7 +46,7 @@ function getConvexClient(): ConvexHttpClient {
 }
 
 /**
- * Run the full research pipeline (Phase 2 steps).
+ * Run the full GTM pipeline (Phase 2 + Phase 3 steps).
  * This is a long-running process called from an API route.
  */
 export async function runResearchPipeline(input: PipelineInput): Promise<void> {
@@ -218,22 +224,43 @@ export async function runResearchPipeline(input: PipelineInput): Promise<void> {
           searchResults: searchResultsWithContent,
         })
 
+        // Hardening: normalize + dedupe + basic spam filtering + trust scoring.
+        const rawExtractedCount = extractedSources.sources.length
+        const preparedSources = extractedSources.sources.map((source) => ({
+          ...source,
+          normalizedUrl: normalizeSourceUrl(source.url),
+          sourceTrustScore: computeSourceTrustScore(source),
+        }))
+        const dedupedSources = dedupeSources(preparedSources)
+        const filteredSources = dedupedSources.filter((source) => {
+          const bodyLength = source.body.trim().length
+          const relevance = source.relevanceScore ?? 0.5
+          return (
+            bodyLength >= 120 &&
+            relevance >= 0.25 &&
+            !looksSpamSource(source.body)
+          )
+        })
+        const filteredOutCount = dedupedSources.length - filteredSources.length
+
         // Store discussion sources in Convex
-        const sourcesToStore = extractedSources.sources
-          .filter((s) => (s.relevanceScore ?? 0.5) >= 0.2)
-          .map((s) => ({
-            sourceType: s.sourceType,
-            url: s.url,
-            postId: s.postId,
-            title: s.title,
-            body: s.body,
-            author: s.author,
-            community: s.community,
-            score: s.score,
-            commentCount: s.commentCount,
-            postedAt: s.postedAt,
-            relevanceScore: s.relevanceScore,
-          }))
+        const sourcesToStore = filteredSources.map((source) => ({
+          sourceType: source.sourceType,
+          url: source.normalizedUrl,
+          postId: source.postId,
+          title: source.title,
+          body: source.body,
+          author: source.author,
+          community: source.community,
+          score: source.score,
+          commentCount: source.commentCount,
+          postedAt: source.postedAt,
+          relevanceScore: source.relevanceScore,
+        }))
+
+        if (sourcesToStore.length === 0) {
+          throw new Error("All extracted sources were filtered out by quality checks")
+        }
 
         if (sourcesToStore.length > 0) {
           storedSourceIds = (await convex.mutation(
@@ -252,8 +279,16 @@ export async function runResearchPipeline(input: PipelineInput): Promise<void> {
           metadata: JSON.stringify({
             resultsAttempted: discoveryResults.results.length,
             resultsWithContent: searchResultsWithContent.length,
-            sourcesExtracted: extractedSources.sources.length,
+            sourcesExtracted: rawExtractedCount,
+            sourcesAfterDedupe: dedupedSources.length,
+            sourcesFilteredOut: filteredOutCount,
             sourcesStored: sourcesToStore.length,
+            avgTrustScore: Number(
+              (
+                filteredSources.reduce((sum, source) => sum + source.sourceTrustScore, 0) /
+                Math.max(filteredSources.length, 1)
+              ).toFixed(2)
+            ),
           }),
         })
       } catch (err) {
@@ -298,6 +333,21 @@ export async function runResearchPipeline(input: PipelineInput): Promise<void> {
         searchQueries: [],
       }
     }
+
+    let painPointsForCampaign: Array<{
+      _id: Id<"painPoints">
+      theme: string
+      description: string
+      category?: string
+      frequency: number
+      sentiment: PainPoint["sentiment"]
+      confidenceScore: number
+      evidenceSnippets: Array<{
+        sourceId: Id<"discussionSources">
+        quote: string
+        url: string
+      }>
+    }> = []
 
     // ── Step 4: Pain Synthesis ───────────────────────────────────────────
     if (shouldRunStep("pain_synthesis", startFromStep)) {
@@ -355,6 +405,10 @@ export async function runResearchPipeline(input: PipelineInput): Promise<void> {
           })
         }
 
+        painPointsForCampaign = await convex.query(api.research.getPainPointsByRun, {
+          runId: input.runId,
+        })
+
         await convex.mutation(api.workflows.completeStep, {
           runId: input.runId,
           step: "pain_synthesis",
@@ -376,20 +430,365 @@ export async function runResearchPipeline(input: PipelineInput): Promise<void> {
         })
         throw err
       }
+    } else {
+      painPointsForCampaign = await convex.query(api.research.getPainPointsByRun, {
+        runId: input.runId,
+      })
+
+      if (painPointsForCampaign.length === 0) {
+        throw new Error("Cannot retry from this step because pain points are missing")
+      }
     }
 
-    // ── Steps 5-7 skipped (Phase 3) ─────────────────────────────────────
-    // Skip messaging, lead gen, and outreach for Phase 2
-    for (const step of [
-      "messaging_generation",
-      "lead_generation",
-      "outreach_generation",
-    ] as const) {
-      await convex.mutation(api.workflows.updateStep, {
-        stepId: await getStepId(convex, input.runId, step),
-        status: "skipped",
-        metadata: JSON.stringify({ reason: "Phase 3 — not yet implemented" }),
+    // ── Step 5: Messaging Generation ─────────────────────────────────────
+    let messagingAnglesForCampaign: Array<{
+      _id: Id<"messagingAngles">
+      angle: string
+      valueProp: string
+      hooks: string[]
+      ctaVariants?: string[]
+      landingPageCopy?: string
+      targetSegment?: string
+      channel?: string
+    }> = []
+
+    if (shouldRunStep("messaging_generation", startFromStep)) {
+      await convex.mutation(api.workflows.startStep, {
+        runId: input.runId,
+        step: "messaging_generation",
       })
+
+      try {
+        if (!icpOutput) {
+          throw new Error("ICP results are unavailable for messaging generation")
+        }
+        if (painPointsForCampaign.length === 0) {
+          throw new Error("Pain points are unavailable for messaging generation")
+        }
+
+        const messagingOutput = await runMessagingAgent({
+          productDescription: input.productDescription,
+          targetAudience: input.targetAudience,
+          icpSegments: icpOutput.segments,
+          painPoints: painPointsForCampaign.map((pain) => ({
+            theme: pain.theme,
+            description: pain.description,
+            category: pain.category ?? "",
+            frequency: pain.frequency,
+            sentiment: pain.sentiment,
+            confidenceScore: pain.confidenceScore,
+            evidenceSnippets: pain.evidenceSnippets.map((snippet) => ({
+              sourceUrl: snippet.url,
+              quote: snippet.quote,
+            })),
+          })),
+        })
+
+        const defaultSupportingPainPointIds = painPointsForCampaign
+          .slice(0, 3)
+          .map((pain) => pain._id)
+
+        await convex.mutation(api.messaging.storeMessagingAngles, {
+          userId: input.userId,
+          runId: input.runId,
+          angles: messagingOutput.angles.map((angle) => ({
+            angle: angle.angle,
+            valueProp: angle.valueProp,
+            supportingPainPointIds: defaultSupportingPainPointIds,
+            hooks: angle.hooks,
+            ctaVariants:
+              angle.ctaVariants.length > 0 ? angle.ctaVariants : undefined,
+            landingPageCopy: angle.landingPageCopy || undefined,
+            targetSegment: angle.targetSegment || undefined,
+            channel: angle.channel || undefined,
+          })),
+        })
+
+        messagingAnglesForCampaign = await convex.query(
+          api.messaging.getMessagingAnglesByRun,
+          { runId: input.runId }
+        )
+
+        await convex.mutation(api.workflows.completeStep, {
+          runId: input.runId,
+          step: "messaging_generation",
+          metadata: JSON.stringify({
+            angleCount: messagingAnglesForCampaign.length,
+          }),
+        })
+      } catch (err) {
+        const errorMsg =
+          err instanceof Error ? err.message : "Messaging generation failed"
+        await convex.mutation(api.workflows.failStep, {
+          runId: input.runId,
+          step: "messaging_generation",
+          error: errorMsg,
+        })
+        await convex.mutation(api.workflows.failRun, {
+          runId: input.runId,
+          error: `Messaging generation failed: ${errorMsg}`,
+        })
+        throw err
+      }
+    } else {
+      messagingAnglesForCampaign = await convex.query(
+        api.messaging.getMessagingAnglesByRun,
+        { runId: input.runId }
+      )
+
+      if (messagingAnglesForCampaign.length === 0) {
+        throw new Error(
+          "Cannot retry from this step because messaging angles are missing"
+        )
+      }
+    }
+
+    // ── Step 6: Lead Generation ──────────────────────────────────────────
+    let storedLeadsForCampaign: Array<{
+      _id: Id<"leads">
+      firstName: string
+      lastName: string
+      title?: string
+      email?: string
+      linkedinUrl?: string
+      companyName?: string
+      companyDomain?: string
+      companyDescription?: string
+      companySize?: string
+      industry?: string
+      source: string
+      confidence?: number
+    }> = []
+
+    if (shouldRunStep("lead_generation", startFromStep)) {
+      await convex.mutation(api.workflows.startStep, {
+        runId: input.runId,
+        step: "lead_generation",
+      })
+
+      let leadListId: Id<"leadLists"> | null = null
+
+      try {
+        if (!icpOutput) {
+          throw new Error("ICP results are unavailable for lead generation")
+        }
+
+        const leadOutput = await runLeadAgent({
+          productDescription: input.productDescription,
+          targetAudience: input.targetAudience,
+          icpSegments: icpOutput.segments,
+          messagingAngles: messagingAnglesForCampaign.map(
+            (angle): MessagingAngle => ({
+              angle: angle.angle,
+              valueProp: angle.valueProp,
+              hooks: angle.hooks,
+              ctaVariants: angle.ctaVariants ?? [],
+              landingPageCopy: angle.landingPageCopy ?? "",
+              targetSegment: angle.targetSegment ?? "",
+              channel: angle.channel ?? "",
+            })
+          ),
+          painPoints: painPointsForCampaign.map((pain): PainPoint => ({
+            theme: pain.theme,
+            description: pain.description,
+            category: pain.category ?? "",
+            frequency: pain.frequency,
+            sentiment: pain.sentiment,
+            confidenceScore: pain.confidenceScore,
+            evidenceSnippets: pain.evidenceSnippets.map((snippet) => ({
+              sourceUrl: snippet.url,
+              quote: snippet.quote,
+            })),
+          })),
+          maxLeads: 25,
+        })
+
+        leadListId = await convex.mutation(api.leads.createLeadList, {
+          userId: input.userId,
+          runId: input.runId,
+          provider: leadOutput.provider,
+          searchCriteria: JSON.stringify(leadOutput.searchCriteria),
+        })
+
+        await convex.mutation(api.leads.updateLeadList, {
+          leadListId,
+          status: "fetching",
+        })
+
+        const normalizedLeads = leadOutput.leads.map((lead) => ({
+          firstName: lead.firstName,
+          lastName: lead.lastName,
+          title: lead.title || undefined,
+          email: lead.email || undefined,
+          linkedinUrl: lead.linkedinUrl || undefined,
+          companyName: lead.companyName || undefined,
+          companyDomain: lead.companyDomain || undefined,
+          companyDescription: lead.companyDescription || undefined,
+          companySize: lead.companySize || undefined,
+          industry: lead.industry || undefined,
+          source: lead.source || leadOutput.provider,
+          confidence: lead.confidence,
+          enrichmentMetadata: undefined,
+        }))
+
+        if (normalizedLeads.length > 0) {
+          await convex.mutation(api.leads.storeLeads, {
+            userId: input.userId,
+            leadListId,
+            leads: normalizedLeads,
+          })
+        }
+
+        await convex.mutation(api.leads.updateLeadList, {
+          leadListId,
+          status: "completed",
+          totalResults: normalizedLeads.length,
+        })
+
+        storedLeadsForCampaign = await convex.query(api.leads.getLeadsByRun, {
+          runId: input.runId,
+        })
+
+        await convex.mutation(api.workflows.completeStep, {
+          runId: input.runId,
+          step: "lead_generation",
+          metadata: JSON.stringify({
+            provider: leadOutput.provider,
+            leadCount: storedLeadsForCampaign.length,
+            searchCriteria: leadOutput.searchCriteria,
+          }),
+        })
+      } catch (err) {
+        if (leadListId) {
+          await convex.mutation(api.leads.updateLeadList, {
+            leadListId,
+            status: "failed",
+            error: err instanceof Error ? err.message : "Lead generation failed",
+          })
+        }
+
+        const errorMsg = err instanceof Error ? err.message : "Lead generation failed"
+        await convex.mutation(api.workflows.failStep, {
+          runId: input.runId,
+          step: "lead_generation",
+          error: errorMsg,
+        })
+        await convex.mutation(api.workflows.failRun, {
+          runId: input.runId,
+          error: `Lead generation failed: ${errorMsg}`,
+        })
+        throw err
+      }
+    } else {
+      storedLeadsForCampaign = await convex.query(api.leads.getLeadsByRun, {
+        runId: input.runId,
+      })
+
+      if (storedLeadsForCampaign.length === 0) {
+        throw new Error("Cannot retry from this step because leads are missing")
+      }
+    }
+
+    // ── Step 7: Outreach Generation ──────────────────────────────────────
+    if (shouldRunStep("outreach_generation", startFromStep)) {
+      await convex.mutation(api.workflows.startStep, {
+        runId: input.runId,
+        step: "outreach_generation",
+      })
+
+      try {
+        if (storedLeadsForCampaign.length === 0) {
+          throw new Error("Leads are unavailable for outreach generation")
+        }
+
+        const outreachOutput = await runOutreachAgent({
+          productDescription: input.productDescription,
+          targetAudience: input.targetAudience,
+          leads: storedLeadsForCampaign.map((lead): Lead => ({
+            firstName: lead.firstName,
+            lastName: lead.lastName,
+            title: lead.title ?? "",
+            email: lead.email ?? "",
+            linkedinUrl: lead.linkedinUrl ?? "",
+            companyName: lead.companyName ?? "",
+            companyDomain: lead.companyDomain ?? "",
+            companyDescription: lead.companyDescription ?? "",
+            companySize: lead.companySize ?? "",
+            industry: lead.industry ?? "",
+            source: lead.source,
+            confidence: lead.confidence ?? 0.5,
+          })),
+          messagingAngles: messagingAnglesForCampaign.map(
+            (angle): MessagingAngle => ({
+              angle: angle.angle,
+              valueProp: angle.valueProp,
+              hooks: angle.hooks,
+              ctaVariants: angle.ctaVariants ?? [],
+              landingPageCopy: angle.landingPageCopy ?? "",
+              targetSegment: angle.targetSegment ?? "",
+              channel: angle.channel ?? "",
+            })
+          ),
+          painPoints: painPointsForCampaign.map((pain): PainPoint => ({
+            theme: pain.theme,
+            description: pain.description,
+            category: pain.category ?? "",
+            frequency: pain.frequency,
+            sentiment: pain.sentiment,
+            confidenceScore: pain.confidenceScore,
+            evidenceSnippets: pain.evidenceSnippets.map((snippet) => ({
+              sourceUrl: snippet.url,
+              quote: snippet.quote,
+            })),
+          })),
+        })
+
+        const draftsToStore = outreachOutput.drafts
+          .filter(
+            (item) =>
+              item.leadIndex >= 0 && item.leadIndex < storedLeadsForCampaign.length
+          )
+          .map((item) => ({
+            leadId: storedLeadsForCampaign[item.leadIndex]!._id,
+            channel: item.draft.channel,
+            subject: item.draft.subject || undefined,
+            body: item.draft.body,
+            personalizationInputs: JSON.stringify(item.draft.personalizationInputs),
+          }))
+
+        if (draftsToStore.length > 0) {
+          await convex.mutation(api.outreach.storeDrafts, {
+            userId: input.userId,
+            runId: input.runId,
+            drafts: draftsToStore,
+          })
+        }
+
+        await convex.mutation(api.workflows.completeStep, {
+          runId: input.runId,
+          step: "outreach_generation",
+          metadata: JSON.stringify({
+            draftsGenerated: draftsToStore.length,
+            leadsUsed: storedLeadsForCampaign.length,
+            coveragePct: Number(
+              ((draftsToStore.length / Math.max(storedLeadsForCampaign.length, 1)) * 100).toFixed(1)
+            ),
+          }),
+        })
+      } catch (err) {
+        const errorMsg =
+          err instanceof Error ? err.message : "Outreach generation failed"
+        await convex.mutation(api.workflows.failStep, {
+          runId: input.runId,
+          step: "outreach_generation",
+          error: errorMsg,
+        })
+        await convex.mutation(api.workflows.failRun, {
+          runId: input.runId,
+          error: `Outreach generation failed: ${errorMsg}`,
+        })
+        throw err
+      }
     }
 
     // ── Complete the run ─────────────────────────────────────────────────
@@ -436,16 +835,105 @@ const STEP_ORDER: Record<PipelineStep, number> = {
   outreach_generation: 6,
 }
 
-/**
- * Helper to find a step document ID by run ID and step name.
- */
-async function getStepId(
-  convex: ConvexHttpClient,
-  runId: Id<"workflowRuns">,
-  stepName: string
-): Promise<Id<"workflowSteps">> {
-  const steps = await convex.query(api.workflows.getSteps, { runId })
-  const step = steps.find((s) => s.step === stepName)
-  if (!step) throw new Error(`Step ${stepName} not found in run`)
-  return step._id
+type ExtractedSource = Awaited<
+  ReturnType<typeof runEvidenceExtractionAgent>
+>["sources"][number]
+
+type PreparedSource = ExtractedSource & {
+  normalizedUrl: string
+  sourceTrustScore: number
+}
+
+function normalizeSourceUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    parsed.hash = ""
+    const trackingParams = [
+      "utm_source",
+      "utm_medium",
+      "utm_campaign",
+      "utm_term",
+      "utm_content",
+      "ref",
+      "fbclid",
+      "gclid",
+    ]
+    for (const param of trackingParams) {
+      parsed.searchParams.delete(param)
+    }
+    const normalized = parsed.toString()
+    return normalized.endsWith("/") ? normalized.slice(0, -1) : normalized
+  } catch {
+    return url.trim()
+  }
+}
+
+function bodyFingerprint(body: string): string {
+  const normalized = body
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/[^a-z0-9 ]/g, "")
+    .trim()
+  return normalized.slice(0, 180)
+}
+
+function computeSourceTrustScore(source: ExtractedSource): number {
+  const sourceTypeWeight: Record<ExtractedSource["sourceType"], number> = {
+    reddit: 0.85,
+    hackernews: 0.9,
+    forum: 0.75,
+    review_site: 0.8,
+    other: 0.6,
+  }
+
+  const relevance = Math.max(0, Math.min(1, source.relevanceScore ?? 0.5))
+  const bodyLengthScore = Math.min((source.body?.trim().length ?? 0) / 1000, 1)
+  const attributionScore =
+    (source.author ? 0.1 : 0) +
+    (source.community ? 0.1 : 0) +
+    (source.commentCount && source.commentCount > 0 ? 0.05 : 0)
+
+  const weighted =
+    sourceTypeWeight[source.sourceType] * 0.5 +
+    relevance * 0.35 +
+    bodyLengthScore * 0.1 +
+    attributionScore
+
+  return Math.max(0, Math.min(1, Number(weighted.toFixed(2))))
+}
+
+function looksSpamSource(body: string): boolean {
+  const text = body.toLowerCase()
+  const spamPatterns = [
+    "buy now",
+    "limited time offer",
+    "promo code",
+    "sponsored",
+    "click here",
+    "free trial no credit card",
+  ]
+  return spamPatterns.some((pattern) => text.includes(pattern))
+}
+
+function dedupeSources(sources: PreparedSource[]): PreparedSource[] {
+  const deduped = new Map<string, PreparedSource>()
+
+  for (const source of sources) {
+    const key = `${source.normalizedUrl}::${bodyFingerprint(source.body)}`
+    const existing = deduped.get(key)
+    if (!existing) {
+      deduped.set(key, source)
+      continue
+    }
+
+    const existingScore =
+      (existing.relevanceScore ?? 0.5) * 0.6 + existing.sourceTrustScore * 0.4
+    const candidateScore =
+      (source.relevanceScore ?? 0.5) * 0.6 + source.sourceTrustScore * 0.4
+    if (candidateScore > existingScore) {
+      deduped.set(key, source)
+    }
+  }
+
+  return Array.from(deduped.values())
 }

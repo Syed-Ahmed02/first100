@@ -23,11 +23,24 @@ import { AgentRunTimeline } from "@/components/agent-run-timeline"
 import { StreamingStepState } from "@/components/streaming-step-state"
 import { IcpPanel } from "@/components/icp-panel"
 import { PainPointsPanel } from "@/components/pain-points-panel"
+import { DiscussionSourcesPanel } from "@/components/discussion-sources-panel"
+import { MessagingPanel } from "@/components/messaging-panel"
+import { LeadsPanel } from "@/components/leads-panel"
+import { OutreachPanel } from "@/components/outreach-panel"
 import { STEP_DISPLAY } from "@/lib/validation"
 import type { PipelineStep } from "@/lib/validation"
 import { RiRefreshLine } from "@remixicon/react"
 
-const validTabs = ["overview", "icp", "pain-points", "pipeline"] as const
+const validTabs = [
+  "overview",
+  "icp",
+  "sources",
+  "pain-points",
+  "messaging",
+  "leads",
+  "outreach",
+  "pipeline",
+] as const
 
 type ResearchTab = (typeof validTabs)[number]
 
@@ -39,6 +52,41 @@ const statusVariant = {
   cancelled: "outline",
 } as const
 
+function parseStepMetadata(metadata?: string): Record<string, unknown> | null {
+  if (!metadata) return null
+  try {
+    const parsed = JSON.parse(metadata) as unknown
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null
+    }
+    return parsed as Record<string, unknown>
+  } catch {
+    return null
+  }
+}
+
+function formatMetadataValue(value: unknown): string {
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value)
+  }
+  if (typeof value === "string") {
+    return value
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((item) =>
+        typeof item === "string" || typeof item === "number"
+          ? String(item)
+          : JSON.stringify(item)
+      )
+      .join(", ")
+  }
+  if (value && typeof value === "object") {
+    return JSON.stringify(value)
+  }
+  return "N/A"
+}
+
 export default function ResearchPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -47,7 +95,11 @@ export default function ResearchPage() {
   const latestRun = useQuery(api.workflows.getLatestRun)
   const steps = useQuery(api.workflows.getCurrentUserSteps)
   const icpProfiles = useQuery(api.research.getIcpProfiles)
+  const discussionSources = useQuery(api.research.getDiscussionSources)
   const painPoints = useQuery(api.research.getPainPoints)
+  const messagingAngles = useQuery(api.messaging.getMessagingAngles)
+  const leads = useQuery(api.leads.getLeads)
+  const outreachDrafts = useQuery(api.outreach.getDrafts)
   const resetRunFromStep = useMutation(api.workflows.resetRunFromStep)
 
   const autoStartedRunIdRef = useRef<string | null>(null)
@@ -164,6 +216,11 @@ export default function ResearchPage() {
     }
   }
 
+  async function handleRunFullPipeline() {
+    if (latestRun?.status === "running") return
+    await handleRetryStep("icp_research")
+  }
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -173,17 +230,34 @@ export default function ResearchPage() {
             Hi {firstName}, your agents are working.
           </h1>
           <p className="max-w-2xl text-sm text-muted-foreground">
-            Your initial research appears here as each step completes, starting
-            with ICP research and then pain-point synthesis.
+            Outputs appear here as each agent step completes, from research to
+            messaging, leads, and outreach drafts.
           </p>
         </div>
         {latestRun && (
-          <Badge
-            variant={statusVariant[latestRun.status] ?? "outline"}
-            className="w-fit capitalize"
-          >
-            {latestRun.status}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge
+              variant={statusVariant[latestRun.status] ?? "outline"}
+              className="w-fit capitalize"
+            >
+              {latestRun.status}
+            </Badge>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={latestRun.status === "running" || retryingStep !== null}
+              onClick={() => void handleRunFullPipeline()}
+            >
+              <RiRefreshLine
+                className={`mr-1 h-4 w-4 ${
+                  retryingStep === "icp_research" ? "animate-spin" : ""
+                }`}
+              />
+              {retryingStep === "icp_research"
+                ? "Restarting..."
+                : "Run full pipeline"}
+            </Button>
+          </div>
         )}
       </div>
 
@@ -321,7 +395,7 @@ export default function ResearchPage() {
             </Card>
           )}
 
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-4">
             <Card>
               <CardContent className="pt-6">
                 <p className="text-2xl font-semibold">{completedCount}</p>
@@ -346,6 +420,14 @@ export default function ResearchPage() {
                 </p>
               </CardContent>
             </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-2xl font-semibold">
+                  {discussionSources?.length ?? 0}
+                </p>
+                <p className="text-sm text-muted-foreground">Sources collected</p>
+              </CardContent>
+            </Card>
           </div>
 
           <Tabs
@@ -355,13 +437,21 @@ export default function ResearchPage() {
             <TabsList>
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="icp">ICP</TabsTrigger>
+              <TabsTrigger value="sources">Sources</TabsTrigger>
               <TabsTrigger value="pain-points">Pain Points</TabsTrigger>
+              <TabsTrigger value="messaging">Messaging</TabsTrigger>
+              <TabsTrigger value="leads">Leads</TabsTrigger>
+              <TabsTrigger value="outreach">Outreach</TabsTrigger>
               <TabsTrigger value="pipeline">Pipeline</TabsTrigger>
             </TabsList>
 
             <TabsContent value="overview" className="mt-4 space-y-4">
               <IcpPanel profiles={icpProfiles as never} />
+              <DiscussionSourcesPanel sources={discussionSources as never} />
               <PainPointsPanel painPoints={painPoints as never} />
+              <MessagingPanel angles={messagingAngles as never} />
+              <LeadsPanel leads={leads as never} />
+              <OutreachPanel drafts={outreachDrafts as never} />
             </TabsContent>
 
             <TabsContent value="icp" className="mt-4">
@@ -370,6 +460,22 @@ export default function ResearchPage() {
 
             <TabsContent value="pain-points" className="mt-4">
               <PainPointsPanel painPoints={painPoints as never} />
+            </TabsContent>
+
+            <TabsContent value="sources" className="mt-4">
+              <DiscussionSourcesPanel sources={discussionSources as never} />
+            </TabsContent>
+
+            <TabsContent value="messaging" className="mt-4">
+              <MessagingPanel angles={messagingAngles as never} />
+            </TabsContent>
+
+            <TabsContent value="leads" className="mt-4">
+              <LeadsPanel leads={leads as never} />
+            </TabsContent>
+
+            <TabsContent value="outreach" className="mt-4">
+              <OutreachPanel drafts={outreachDrafts as never} />
             </TabsContent>
 
             <TabsContent value="pipeline" className="mt-4">
@@ -390,6 +496,7 @@ export default function ResearchPage() {
                   ) : (
                     steps.map((step) => {
                       const display = STEP_DISPLAY[step.step as PipelineStep]
+                      const metadata = parseStepMetadata(step.metadata)
 
                       return (
                         <div
@@ -407,6 +514,19 @@ export default function ResearchPage() {
                               <p className="text-xs text-destructive">
                                 {step.error}
                               </p>
+                            )}
+                            {metadata && Object.keys(metadata).length > 0 && (
+                              <div className="mt-2 flex flex-wrap gap-1.5">
+                                {Object.entries(metadata).map(([key, value]) => (
+                                  <Badge
+                                    key={key}
+                                    variant="outline"
+                                    className="text-[10px]"
+                                  >
+                                    {key}: {formatMetadataValue(value)}
+                                  </Badge>
+                                ))}
+                              </div>
                             )}
                             {step.status === "failed" &&
                               latestRun.status !== "running" &&
