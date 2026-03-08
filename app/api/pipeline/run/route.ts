@@ -2,7 +2,7 @@
  * Pipeline execution API route.
  *
  * POST /api/pipeline/run
- * Body: { projectId, runId, productDescription, targetAudience }
+ * Body: { userId, runId, productDescription, targetAudience }
  *
  * Starts the research pipeline in the background and returns immediately.
  * The pipeline updates Convex step statuses as it progresses,
@@ -12,25 +12,27 @@
 import { NextRequest } from "next/server"
 import { runResearchPipeline } from "@/lib/workflows"
 import type { Id } from "@/convex/_generated/dataModel"
+import type { PipelineStep } from "@/lib/validation"
 
 export const maxDuration = 300 // 5 minutes — pipeline can be long-running
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { projectId, runId, productDescription, targetAudience } = body as {
-      projectId: string
+    const { userId, runId, productDescription, targetAudience, startFromStep } = body as {
+      userId: string
       runId: string
       productDescription: string
       targetAudience: string
+      startFromStep?: PipelineStep
     }
 
     // Validate required fields
-    if (!projectId || !runId || !productDescription) {
+    if (!userId || !runId || !productDescription) {
       return Response.json(
         {
           error:
-            "Missing required fields: projectId, runId, productDescription",
+            "Missing required fields: userId, runId, productDescription",
         },
         { status: 400 }
       )
@@ -43,10 +45,11 @@ export async function POST(req: NextRequest) {
     // The pipeline reports progress via Convex mutations, so the dashboard
     // updates in real-time via Convex subscriptions.
     const pipelinePromise = runResearchPipeline({
-      projectId: projectId as Id<"projects">,
+      userId: userId as Id<"users">,
       runId: runId as Id<"workflowRuns">,
       productDescription,
       targetAudience: targetAudience ?? "",
+      startFromStep,
     })
 
     // For deployments that support waitUntil (e.g. Vercel), use it.
@@ -60,7 +63,7 @@ export async function POST(req: NextRequest) {
     // Return immediately — the pipeline reports progress via Convex
     return Response.json({
       status: "started",
-      projectId,
+      userId,
       runId,
     })
   } catch (err) {

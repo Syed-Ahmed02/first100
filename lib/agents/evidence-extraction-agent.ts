@@ -1,12 +1,13 @@
 /**
  * Evidence Extraction Agent — Uses LLM to extract structured evidence from
- * raw page content fetched by the browser provider.
+ * Exa discussion search results and their returned page contents.
  *
  * Uses Vercel AI SDK generateText() with Output.object() and OpenRouter.
  */
 
 import { generateText, Output } from "ai"
 import { getModel } from "@/lib/ai"
+import type { DiscussionSearchResult } from "@/lib/providers"
 import {
   DiscoveryAgentOutputSchema,
   type DiscoveryAgentOutput,
@@ -27,32 +28,41 @@ Guidelines:
 export interface EvidenceExtractionInput {
   productDescription: string
   targetAudience: string
-  rawPages: Array<{
-    url: string
-    content: string
-    query: string
-  }>
+  searchQueries: string[]
+  searchResults: DiscussionSearchResult[]
 }
 
 export async function runEvidenceExtractionAgent(
   input: EvidenceExtractionInput
 ): Promise<DiscoveryAgentOutput> {
-  const pagesSummary = input.rawPages
+  const resultsSummary = input.searchResults
     .map(
-      (p, i) =>
-        `[Page ${i + 1}] URL: ${p.url}
-Query: ${p.query}
+      (result, i) =>
+        `[Result ${i + 1}] URL: ${result.url}
+Matched Query: ${result.matchedQuery ?? "N/A"}
+Source Type: ${result.sourceType}
+Community: ${result.community ?? "N/A"}
+Title: ${result.title || "N/A"}
+Author: ${result.author ?? "N/A"}
+Published Date: ${result.publishedDate ?? "N/A"}
+Snippet: ${result.snippet ?? "N/A"}
+Summary: ${result.summary ?? "N/A"}
+Highlights:
+${result.highlights?.join("\n- ") ?? "N/A"}
 Content (first 3000 chars):
-${p.content.slice(0, 3000)}`
+${(result.text ?? result.snippet ?? "").slice(0, 3000)}`
     )
     .join("\n\n===\n\n")
 
   const prompt = `Product: ${input.productDescription}
 Target Audience: ${input.targetAudience}
 
-Below are ${input.rawPages.length} raw pages fetched from online discussions. Extract and normalize the evidence.
+Search Queries Used:
+${input.searchQueries.join("\n")}
 
-${pagesSummary}`
+Below are ${input.searchResults.length} Exa search results from discussion-focused websites. Extract and normalize the evidence.
+
+${resultsSummary}`
 
   const { output: result } = await generateText({
     model: getModel(),
@@ -68,8 +78,11 @@ ${pagesSummary}`
   }
 
   console.log(
-    `[EvidenceExtractionAgent] Extracted ${result.sources.length} sources from ${input.rawPages.length} pages`
+    `[EvidenceExtractionAgent] Extracted ${result.sources.length} sources from ${input.searchResults.length} search results`
   )
 
-  return result
+  return {
+    ...result,
+    searchQueries: input.searchQueries,
+  }
 }

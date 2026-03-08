@@ -17,7 +17,9 @@ Guidelines:
 - Make exactly ONE segment primary (isPrimary: true).
 - Be specific about job titles, industries, and company sizes.
 - Ground challenges in realistic business problems.
-- Confidence scores should reflect how well the segment matches the product.`
+- Confidence scores should reflect how well the segment matches the product.
+- Return every schema field for every segment.
+- Use empty arrays for missing list values and empty strings for missing text values.`
 
 export interface IcpAgentInput {
   productDescription: string

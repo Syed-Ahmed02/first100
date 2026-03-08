@@ -155,7 +155,7 @@ export default function OnboardingPage() {
 
   useEffect(() => {
     if (isOnboarded) {
-      router.replace("/dashboard")
+      router.replace("/research")
     }
   }, [isOnboarded, router])
 
@@ -220,14 +220,31 @@ export default function OnboardingPage() {
     setSubmitting(true)
     setSubmitError(null)
     try {
-      await completeOnboarding({
+      const onboardingResult = await completeOnboarding({
         name: formData.name,
         goals: formData.goals,
         productDescription: formData.productDescription,
         targetAudience: formData.targetAudience || undefined,
         gmailConnected,
       })
-      router.replace("/dashboard")
+
+      const res = await fetch("/api/pipeline/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: onboardingResult.userId,
+          runId: onboardingResult.runId,
+          productDescription: formData.productDescription,
+          targetAudience: formData.targetAudience ?? "",
+        }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error ?? "Failed to start research agents")
+      }
+
+      router.replace("/research")
     } catch (err) {
       setSubmitError(
         err instanceof Error ? err.message : "Something went wrong"
@@ -406,7 +423,7 @@ export default function OnboardingPage() {
                     onKeyDown={handleChatKeyDown}
                     disabled={isStreaming}
                     rows={1}
-                    className="min-h-[2.25rem] max-h-[120px] resize-none text-sm"
+                    className="min-h-9 max-h-[120px] resize-none text-sm"
                   />
                   {isStreaming ? (
                     <Button

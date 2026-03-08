@@ -37,26 +37,10 @@ export default defineSchema({
     onboardingComplete: v.boolean(),
   }).index("by_token", ["tokenIdentifier"]),
 
-  // ── Projects ──────────────────────────────────────────────────────────────
-  projects: defineTable({
-    userId: v.id("users"),
-    name: v.string(),
-    productDescription: v.string(),
-    targetAudience: v.optional(v.string()),
-    goals: v.optional(v.string()),
-    status: v.union(
-      v.literal("draft"),
-      v.literal("active"),
-      v.literal("paused"),
-      v.literal("completed")
-    ),
-    createdAt: v.number(),
-  }).index("by_user", ["userId"]),
-
   // ── Workflow Runs ─────────────────────────────────────────────────────────
-  // One run per pipeline execution for a project
+  // One run per pipeline execution for a user
   workflowRuns: defineTable({
-    projectId: v.id("projects"),
+    userId: v.id("users"),
     status: v.union(
       v.literal("pending"),
       v.literal("running"),
@@ -70,14 +54,14 @@ export default defineSchema({
     error: v.optional(v.string()),
     createdAt: v.number(),
   })
-    .index("by_project", ["projectId"])
+    .index("by_user", ["userId"])
     .index("by_status", ["status"]),
 
   // ── Workflow Steps ────────────────────────────────────────────────────────
   // Individual step tracking within a run
   workflowSteps: defineTable({
     runId: v.id("workflowRuns"),
-    projectId: v.id("projects"),
+    userId: v.id("users"),
     step: workflowStepName,
     status: stepStatus,
     startedAt: v.optional(v.number()),
@@ -89,11 +73,12 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_run", ["runId"])
-    .index("by_project_step", ["projectId", "step"]),
+    .index("by_user", ["userId"])
+    .index("by_user_step", ["userId", "step"]),
 
   // ── ICP Profiles ──────────────────────────────────────────────────────────
   icpProfiles: defineTable({
-    projectId: v.id("projects"),
+    userId: v.id("users"),
     runId: v.id("workflowRuns"),
     // Segment identity
     segmentName: v.string(),
@@ -113,13 +98,13 @@ export default defineSchema({
     reasoning: v.optional(v.string()),
     createdAt: v.number(),
   })
-    .index("by_project", ["projectId"])
+    .index("by_user", ["userId"])
     .index("by_run", ["runId"]),
 
   // ── Discussion Sources ────────────────────────────────────────────────────
   // Raw evidence from online discussions (Reddit, forums, etc.)
   discussionSources: defineTable({
-    projectId: v.id("projects"),
+    userId: v.id("users"),
     runId: v.id("workflowRuns"),
     // Source identification
     sourceType: v.union(
@@ -146,14 +131,14 @@ export default defineSchema({
     isFiltered: v.optional(v.boolean()), // flagged as spam/irrelevant
     createdAt: v.number(),
   })
-    .index("by_project", ["projectId"])
+    .index("by_user", ["userId"])
     .index("by_run", ["runId"])
     .index("by_url", ["url"]),
 
   // ── Pain Points ───────────────────────────────────────────────────────────
   // Clustered pain points with evidence
   painPoints: defineTable({
-    projectId: v.id("projects"),
+    userId: v.id("users"),
     runId: v.id("workflowRuns"),
     // Theme
     theme: v.string(),
@@ -178,12 +163,12 @@ export default defineSchema({
     ),
     createdAt: v.number(),
   })
-    .index("by_project", ["projectId"])
+    .index("by_user", ["userId"])
     .index("by_run", ["runId"]),
 
   // ── Messaging Angles ──────────────────────────────────────────────────────
   messagingAngles: defineTable({
-    projectId: v.id("projects"),
+    userId: v.id("users"),
     runId: v.id("workflowRuns"),
     // Core message
     angle: v.string(),
@@ -199,12 +184,12 @@ export default defineSchema({
     channel: v.optional(v.string()), // email, linkedin, ad, etc.
     createdAt: v.number(),
   })
-    .index("by_project", ["projectId"])
+    .index("by_user", ["userId"])
     .index("by_run", ["runId"]),
 
   // ── Lead Lists ────────────────────────────────────────────────────────────
   leadLists: defineTable({
-    projectId: v.id("projects"),
+    userId: v.id("users"),
     runId: v.id("workflowRuns"),
     // Provider info
     provider: v.string(), // "apollo", "linkedin", etc.
@@ -221,12 +206,12 @@ export default defineSchema({
     error: v.optional(v.string()),
     createdAt: v.number(),
   })
-    .index("by_project", ["projectId"])
+    .index("by_user", ["userId"])
     .index("by_run", ["runId"]),
 
   // ── Leads ─────────────────────────────────────────────────────────────────
   leads: defineTable({
-    projectId: v.id("projects"),
+    userId: v.id("users"),
     leadListId: v.id("leadLists"),
     // Person
     firstName: v.string(),
@@ -246,12 +231,12 @@ export default defineSchema({
     enrichmentMetadata: v.optional(v.string()), // JSON - provider-specific data
     createdAt: v.number(),
   })
-    .index("by_project", ["projectId"])
+    .index("by_user", ["userId"])
     .index("by_lead_list", ["leadListId"]),
 
   // ── Outreach Drafts ───────────────────────────────────────────────────────
   outreachDrafts: defineTable({
-    projectId: v.id("projects"),
+    userId: v.id("users"),
     runId: v.id("workflowRuns"),
     leadId: v.id("leads"),
     // Content
@@ -276,7 +261,7 @@ export default defineSchema({
     version: v.number(),
     createdAt: v.number(),
   })
-    .index("by_project", ["projectId"])
+    .index("by_user", ["userId"])
     .index("by_run", ["runId"])
     .index("by_lead", ["leadId"]),
 

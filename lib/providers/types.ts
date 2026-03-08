@@ -2,13 +2,17 @@
  * DiscussionProvider — Abstraction layer for online discussion sources.
  *
  * Defines the common interface that all discussion source providers
- * (Exa, Reddit, HackerNews, etc.) implement.
+ * (Exa, Reddit, Hacker News, etc.) implement.
  */
 
 export interface DiscussionSearchResult {
   url: string
   title: string
   snippet?: string
+  text?: string
+  summary?: string
+  highlights?: string[]
+  matchedQuery?: string
   publishedDate?: string
   author?: string
   score?: number
@@ -30,22 +34,4 @@ export interface DiscussionSearchOptions {
 export interface DiscussionProvider {
   name: string
   search(options: DiscussionSearchOptions): Promise<DiscussionSearchResult[]>
-}
-
-/**
- * Raw page content fetched by a browser extraction provider.
- */
-export interface FetchedPage {
-  url: string
-  content: string
-  /** Whether this was a successful fetch */
-  success: boolean
-  /** Error message if fetch failed */
-  error?: string
-}
-
-export interface BrowserExtractionProvider {
-  name: string
-  fetchPages(urls: string[]): Promise<FetchedPage[]>
-  fetchPage(url: string): Promise<FetchedPage>
 }

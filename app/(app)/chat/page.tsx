@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react"
 import { useMutation, useQuery } from "convex/react"
 import { useChat } from "@ai-sdk/react"
 import type { UIMessage } from "ai"
+import { useSearchParams } from "next/navigation"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
 import { Button } from "@/components/ui/button"
@@ -29,6 +30,9 @@ function getTextFromParts(msg: UIMessage): string {
 }
 
 export default function ChatPage() {
+  const searchParams = useSearchParams()
+  const initialQuery = searchParams.get("q")?.trim() ?? ""
+
   // Convex queries/mutations
   const threads = useQuery(api.chat.listThreads)
   const createThread = useMutation(api.chat.createThread)
@@ -46,7 +50,10 @@ export default function ChatPage() {
 
   // Track the active thread ID in a ref so callbacks always see the latest value
   const activeThreadIdRef = useRef(activeThreadId)
-  activeThreadIdRef.current = activeThreadId
+
+  useEffect(() => {
+    activeThreadIdRef.current = activeThreadId
+  }, [activeThreadId])
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -91,7 +98,8 @@ export default function ChatPage() {
   }, [persistedMessages, isStreaming, setMessages])
 
   // Auto-resize textarea
-  const [inputValue, setInputValue] = useState("")
+  const [inputValue, setInputValue] = useState(initialQuery)
+
   useEffect(() => {
     const el = textareaRef.current
     if (el) {
@@ -303,7 +311,7 @@ export default function ChatPage() {
               onKeyDown={handleKeyDown}
               disabled={isStreaming}
               rows={1}
-              className="min-h-[2.5rem] max-h-[200px] resize-none"
+              className="min-h-10 max-h-[200px] resize-none"
             />
             {isStreaming ? (
               <Button

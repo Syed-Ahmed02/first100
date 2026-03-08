@@ -1,26 +1,106 @@
 /**
- * Exa search provider — Uses the Exa API for discovering relevant
- * online discussions across the web.
+ * Exa discussion provider — Uses Exa's AI SDK tool to search
+ * discussion-heavy websites and return content-rich results that can be
+ * passed directly into evidence extraction.
  */
 
-import Exa from "exa-js"
+import { webSearch, type ExaSearchConfig } from "@exalabs/ai-sdk"
 import type {
   DiscussionProvider,
   DiscussionSearchOptions,
   DiscussionSearchResult,
 } from "../types"
 
-let _exa: Exa | null = null
+export const DISCUSSION_SITE_ALLOWLIST = [
+  "reddit.com",
+  "news.ycombinator.com",
+  "producthunt.com",
+  "indiehackers.com",
+  "g2.com",
+  "capterra.com",
+  "trustradius.com",
+  "quora.com",
+  "stackoverflow.com",
+] as const
 
-function getExaClient(): Exa {
-  if (!_exa) {
-    const apiKey = process.env.EXA_API_KEY
-    if (!apiKey) {
-      throw new Error("EXA_API_KEY environment variable is not set")
-    }
-    _exa = new Exa(apiKey)
+interface ExaSearchApiResult {
+  url: string
+  title?: string | null
+  text?: string | null
+  summary?: string | null
+  highlights?: string[] | null
+  publishedDate?: string | null
+  author?: string | null
+}
+
+interface ExaSearchApiResponse {
+  results?: ExaSearchApiResult[]
+}
+
+type ExaSearchTool = {
+  execute: (input: { query: string }) => Promise<ExaSearchApiResponse>
+}
+
+function getDiscussionSearchConfig(
+  options: DiscussionSearchOptions
+): ExaSearchConfig {
+  return {
+    type: "auto",
+    numResults: options.numResults ?? 10,
+    includeDomains:
+      options.includeDomains && options.includeDomains.length > 0
+        ? options.includeDomains
+        : [...DISCUSSION_SITE_ALLOWLIST],
+    excludeDomains: options.excludeDomains,
+    startPublishedDate: options.startDate,
+    contents: {
+      text: {
+        maxCharacters: 4000,
+        includeHtmlTags: false,
+      },
+      highlights: {
+        query:
+          "Customer complaints, frustrations, pain points, unmet needs, and feature requests",
+        highlightsPerUrl: 3,
+        numSentences: 3,
+      },
+      summary: {
+        query: "Summarize the main complaint or unmet need discussed here.",
+      },
+      livecrawl: "preferred",
+      livecrawlTimeout: 10000,
+    },
   }
-  return _exa
+}
+
+async function runExaSearch(
+  query: string,
+  options: DiscussionSearchOptions
+): Promise<ExaSearchApiResult[]> {
+  const tool = webSearch(getDiscussionSearchConfig(options)) as unknown as ExaSearchTool
+
+  if (typeof tool.execute !== "function") {
+    throw new Error("Exa AI SDK webSearch tool does not expose an execute function")
+  }
+
+  const response = await tool.execute({ query })
+  return Array.isArray(response.results) ? response.results : []
+}
+
+function getSnippet(result: ExaSearchApiResult): string | undefined {
+  if (result.highlights && result.highlights.length > 0) {
+    return result.highlights.join(" ... ")
+  }
+
+  if (result.summary) {
+    return result.summary
+  }
+
+  if (result.text) {
+    return result.text.slice(0, 500)
+  }
+
+  return undefined
 }
 
 /**
@@ -39,6 +119,10 @@ function inferSourceType(
   )
     return "review_site"
   if (
+    lower.includes("producthunt.com") ||
+    lower.includes("indiehackers.com") ||
+    lower.includes("quora.com") ||
+    lower.includes("stackoverflow.com") ||
     lower.includes("forum") ||
     lower.includes("community") ||
     lower.includes("discourse")
@@ -51,14 +135,16 @@ function inferSourceType(
  * Extract community/subreddit from URL.
  */
 function inferCommunity(url: string): string | undefined {
-  // Reddit: extract subreddit
   const redditMatch = url.match(/reddit\.com\/r\/([^/]+)/)
   if (redditMatch) return redditMatch[1]
 
-  // HN: just "hackernews"
   if (url.includes("news.ycombinator.com")) return "hackernews"
 
-  return undefined
+  try {
+    return new URL(url).hostname.replace(/^www\./, "")
+  } catch {
+    return undefined
+  }
 }
 
 export class ExaDiscussionProvider implements DiscussionProvider {
@@ -67,33 +153,21 @@ export class ExaDiscussionProvider implements DiscussionProvider {
   async search(
     options: DiscussionSearchOptions
   ): Promise<DiscussionSearchResult[]> {
-    const exa = getExaClient()
+    const results = await runExaSearch(options.query, options)
 
-    const results = await exa.searchAndContents(options.query, {
-      numResults: options.numResults ?? 10,
-      type: "auto",
-      includeDomains: options.includeDomains,
-      excludeDomains: options.excludeDomains,
-      startPublishedDate: options.startDate,
-      highlights: {
-        highlightsPerUrl: 3,
-        numSentences: 3,
-      },
-      text: { maxCharacters: 2000 },
-    })
-
-    return results.results.map(
-      (r): DiscussionSearchResult => ({
-        url: r.url,
-        title: r.title ?? "",
-        snippet:
-          (r.highlights && r.highlights.length > 0
-            ? r.highlights.join(" ... ")
-            : undefined) ?? r.text?.slice(0, 500),
-        publishedDate: r.publishedDate ?? undefined,
-        author: r.author ?? undefined,
-        sourceType: inferSourceType(r.url),
-        community: inferCommunity(r.url),
+    return results.map(
+      (result): DiscussionSearchResult => ({
+        url: result.url,
+        title: result.title ?? "",
+        snippet: getSnippet(result),
+        text: result.text ?? undefined,
+        summary: result.summary ?? undefined,
+        highlights: result.highlights ?? undefined,
+        matchedQuery: options.query,
+        publishedDate: result.publishedDate ?? undefined,
+        author: result.author ?? undefined,
+        sourceType: inferSourceType(result.url),
+        community: inferCommunity(result.url),
       })
     )
   }
@@ -113,8 +187,7 @@ export async function searchDiscussions(
   queriesUsed: string[]
 }> {
   const provider = new ExaDiscussionProvider()
-  const allResults: DiscussionSearchResult[] = []
-  const seenUrls = new Set<string>()
+  const resultsByUrl = new Map<string, DiscussionSearchResult>()
 
   for (const query of queries) {
     try {
@@ -125,10 +198,16 @@ export async function searchDiscussions(
       })
 
       for (const result of results) {
-        if (!seenUrls.has(result.url)) {
-          seenUrls.add(result.url)
-          allResults.push(result)
-        }
+        const existing = resultsByUrl.get(result.url)
+        resultsByUrl.set(result.url, {
+          ...existing,
+          ...result,
+          snippet: existing?.snippet ?? result.snippet,
+          text: existing?.text ?? result.text,
+          summary: existing?.summary ?? result.summary,
+          highlights: existing?.highlights ?? result.highlights,
+          matchedQuery: existing?.matchedQuery ?? result.matchedQuery,
+        })
       }
     } catch (err) {
       console.error(`Exa search failed for query "${query}":`, err)
@@ -137,7 +216,7 @@ export async function searchDiscussions(
   }
 
   return {
-    results: allResults,
+    results: Array.from(resultsByUrl.values()),
     queriesUsed: queries,
   }
 }

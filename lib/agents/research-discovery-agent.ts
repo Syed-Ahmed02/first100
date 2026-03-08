@@ -8,6 +8,7 @@
 import { generateText, Output } from "ai"
 import { z } from "zod"
 import { getModel } from "@/lib/ai"
+import { DISCUSSION_SITE_ALLOWLIST } from "@/lib/providers/exa"
 import type { IcpAgentOutput } from "@/lib/validation"
 
 const SYSTEM_PROMPT = `You are an expert research strategist. Given ICP segments and a product description,
@@ -16,17 +17,18 @@ complains about problems the product could solve.
 
 Guidelines:
 - Generate 4-6 search queries.
-- Target Reddit, forums, review sites, and community discussions.
+- Target discussion-heavy sites only: ${DISCUSSION_SITE_ALLOWLIST.join(", ")}.
 - Focus on complaints, frustrations, and unmet needs.
 - Include product category keywords and competitor names if relevant.
-- Mix broad queries with specific ones.`
+- Phrase queries to surface forum threads, review discussions, and complaint posts.
+- Do not mention websites outside the allowlist.`
 
 const QueryGenOutputSchema = z.object({
   queries: z
     .array(z.string())
     .min(1)
     .max(10)
-    .describe("Search queries targeting pain points and complaints"),
+    .describe("Search queries targeting pain points on approved discussion websites"),
 })
 
 export interface QueryGenInput {

@@ -1,1 +1,1 @@
-export { RedditScrapingProvider, scrapeRedditPages } from "./client"
+export { RedditDiscussionProvider } from "./client"

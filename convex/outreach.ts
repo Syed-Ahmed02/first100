@@ -2,11 +2,11 @@ import { mutation, query } from "./_generated/server"
 import { v } from "convex/values"
 
 /**
- * Store outreach drafts for a project run.
+ * Store outreach drafts for a user run.
  */
 export const storeDrafts = mutation({
   args: {
-    projectId: v.id("projects"),
+    userId: v.id("users"),
     runId: v.id("workflowRuns"),
     drafts: v.array(
       v.object({
@@ -28,7 +28,7 @@ export const storeDrafts = mutation({
     const ids = []
     for (const draft of args.drafts) {
       const id = await ctx.db.insert("outreachDrafts", {
-        projectId: args.projectId,
+        userId: args.userId,
         runId: args.runId,
         ...draft,
         status: "draft",
@@ -42,14 +42,26 @@ export const storeDrafts = mutation({
 })
 
 /**
- * Get outreach drafts for a project.
+ * Get outreach drafts for the current user.
  */
 export const getDrafts = query({
-  args: { projectId: v.id("projects") },
-  handler: async (ctx, args) => {
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) return []
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) =>
+        q.eq("tokenIdentifier", identity.tokenIdentifier)
+      )
+      .unique()
+
+    if (!user) return []
+
     return await ctx.db
       .query("outreachDrafts")
-      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
       .collect()
   },
 })

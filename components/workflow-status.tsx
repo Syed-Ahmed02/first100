@@ -163,8 +163,6 @@ export function WorkflowProgressBar({
   const running = steps.filter((s) => s.status === "running").length
   const failed = steps.filter((s) => s.status === "failed").length
 
-  const percentage = total > 0 ? Math.round((completed / total) * 100) : 0
-
   return (
     <div className={cn("space-y-2", className)}>
       <div className="flex items-center justify-between text-xs">

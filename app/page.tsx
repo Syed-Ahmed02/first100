@@ -39,9 +39,9 @@ export default function HomePage() {
     // Still loading user from Convex
     if (user === undefined) return
 
-    // User exists and onboarding complete → dashboard
+    // User exists and onboarding complete → research
     if (user && user.onboardingComplete) {
-      router.replace("/dashboard")
+      router.replace("/research")
       return
     }
 

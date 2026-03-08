@@ -2,11 +2,11 @@ import { mutation, query } from "./_generated/server"
 import { v } from "convex/values"
 
 /**
- * Store ICP profiles for a project run.
+ * Store ICP profiles for a user run.
  */
 export const storeIcpProfiles = mutation({
   args: {
-    projectId: v.id("projects"),
+    userId: v.id("users"),
     runId: v.id("workflowRuns"),
     profiles: v.array(
       v.object({
@@ -30,7 +30,7 @@ export const storeIcpProfiles = mutation({
     const ids = []
     for (const profile of args.profiles) {
       const id = await ctx.db.insert("icpProfiles", {
-        projectId: args.projectId,
+        userId: args.userId,
         runId: args.runId,
         ...profile,
         createdAt: now,
@@ -42,24 +42,49 @@ export const storeIcpProfiles = mutation({
 })
 
 /**
- * Get ICP profiles for a project.
+ * Get ICP profiles for the current user.
  */
 export const getIcpProfiles = query({
-  args: { projectId: v.id("projects") },
-  handler: async (ctx, args) => {
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) return []
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) =>
+        q.eq("tokenIdentifier", identity.tokenIdentifier)
+      )
+      .unique()
+
+    if (!user) return []
+
     return await ctx.db
       .query("icpProfiles")
-      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
       .collect()
   },
 })
 
 /**
- * Store discussion sources for a project run.
+ * Get ICP profiles for a run.
+ */
+export const getIcpProfilesByRun = query({
+  args: { runId: v.id("workflowRuns") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("icpProfiles")
+      .withIndex("by_run", (q) => q.eq("runId", args.runId))
+      .collect()
+  },
+})
+
+/**
+ * Store discussion sources for a user run.
  */
 export const storeDiscussionSources = mutation({
   args: {
-    projectId: v.id("projects"),
+    userId: v.id("users"),
     runId: v.id("workflowRuns"),
     sources: v.array(
       v.object({
@@ -88,7 +113,7 @@ export const storeDiscussionSources = mutation({
     const ids = []
     for (const source of args.sources) {
       const id = await ctx.db.insert("discussionSources", {
-        projectId: args.projectId,
+        userId: args.userId,
         runId: args.runId,
         ...source,
         fetchedAt: now,
@@ -101,24 +126,49 @@ export const storeDiscussionSources = mutation({
 })
 
 /**
- * Get discussion sources for a project.
+ * Get discussion sources for the current user.
  */
 export const getDiscussionSources = query({
-  args: { projectId: v.id("projects") },
-  handler: async (ctx, args) => {
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) return []
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) =>
+        q.eq("tokenIdentifier", identity.tokenIdentifier)
+      )
+      .unique()
+
+    if (!user) return []
+
     return await ctx.db
       .query("discussionSources")
-      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
       .collect()
   },
 })
 
 /**
- * Store pain points for a project run.
+ * Get discussion sources for a run.
+ */
+export const getDiscussionSourcesByRun = query({
+  args: { runId: v.id("workflowRuns") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("discussionSources")
+      .withIndex("by_run", (q) => q.eq("runId", args.runId))
+      .collect()
+  },
+})
+
+/**
+ * Store pain points for a user run.
  */
 export const storePainPoints = mutation({
   args: {
-    projectId: v.id("projects"),
+    userId: v.id("users"),
     runId: v.id("workflowRuns"),
     painPoints: v.array(
       v.object({
@@ -148,7 +198,7 @@ export const storePainPoints = mutation({
     const ids = []
     for (const pp of args.painPoints) {
       const id = await ctx.db.insert("painPoints", {
-        projectId: args.projectId,
+        userId: args.userId,
         runId: args.runId,
         ...pp,
         createdAt: now,
@@ -160,14 +210,26 @@ export const storePainPoints = mutation({
 })
 
 /**
- * Get pain points for a project.
+ * Get pain points for the current user.
  */
 export const getPainPoints = query({
-  args: { projectId: v.id("projects") },
-  handler: async (ctx, args) => {
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) return []
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_token", (q) =>
+        q.eq("tokenIdentifier", identity.tokenIdentifier)
+      )
+      .unique()
+
+    if (!user) return []
+
     return await ctx.db
       .query("painPoints")
-      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
       .collect()
   },
 })
