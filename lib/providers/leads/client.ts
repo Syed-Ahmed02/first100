@@ -3,9 +3,10 @@
  */
 
 import { generateText, Output } from "ai"
+import { z } from "zod"
 import { getModel } from "@/lib/ai"
 import {
-  LeadAgentOutputSchema,
+  LeadSchema,
   type IcpSegment,
   type MessagingAngle,
   type PainPoint,
@@ -20,6 +21,10 @@ export interface LeadProviderInput {
   painPoints: PainPoint[]
   maxLeads?: number
 }
+
+const LeadFallbackOutputSchema = z.object({
+  leads: z.array(LeadSchema),
+})
 
 function buildSearchCriteria(input: LeadProviderInput) {
   const primary = input.icpSegments.find((segment) => segment.isPrimary)
@@ -62,7 +67,7 @@ Use clearly fake emails/domains when unsure (for demo safety).
 
   const { output } = await generateText({
     model: getModel(),
-    output: Output.object({ schema: LeadAgentOutputSchema }),
+    output: Output.object({ schema: LeadFallbackOutputSchema }),
     prompt,
   })
 
