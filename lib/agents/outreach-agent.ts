@@ -3,9 +3,9 @@
  */
 
 import { generateText, Output } from "ai"
+import { z } from "zod"
 import { getModel } from "@/lib/ai"
 import {
-  OutreachAgentOutputSchema,
   type OutreachAgentOutput,
   type Lead,
   type MessagingAngle,
@@ -31,6 +31,25 @@ Guidelines:
 - Email drafts should include a short subject.
 - Keep body practical and skimmable.
 - Return all schema fields.`
+
+const OutreachAgentSafeOutputSchema = z.object({
+  drafts: z.array(
+    z.object({
+      leadIndex: z.number(),
+      draft: z.object({
+        channel: z.enum(["email", "linkedin", "twitter", "other"]),
+        subject: z.string(),
+        body: z.string(),
+        personalizationInputs: z.array(
+          z.object({
+            key: z.string(),
+            value: z.string(),
+          })
+        ),
+      }),
+    })
+  ),
+})
 
 export async function runOutreachAgent(
   input: OutreachAgentInput
@@ -68,7 +87,7 @@ Generate personalized drafts.`
 
   const { output } = await generateText({
     model: getModel(),
-    output: Output.object({ schema: OutreachAgentOutputSchema }),
+    output: Output.object({ schema: OutreachAgentSafeOutputSchema }),
     system: SYSTEM_PROMPT,
     prompt,
   })
@@ -77,5 +96,17 @@ Generate personalized drafts.`
     throw new Error("[OutreachAgent] Failed to generate structured output")
   }
 
-  return output
+  return {
+    drafts: output.drafts.map((item) => ({
+      leadIndex: item.leadIndex,
+      draft: {
+        channel: item.draft.channel,
+        subject: item.draft.subject,
+        body: item.draft.body,
+        personalizationInputs: Object.fromEntries(
+          item.draft.personalizationInputs.map((entry) => [entry.key, entry.value])
+        ),
+      },
+    })),
+  }
 }
