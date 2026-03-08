@@ -52,6 +52,41 @@ const statusVariant = {
   cancelled: "outline",
 } as const
 
+function parseStepMetadata(metadata?: string): Record<string, unknown> | null {
+  if (!metadata) return null
+  try {
+    const parsed = JSON.parse(metadata) as unknown
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null
+    }
+    return parsed as Record<string, unknown>
+  } catch {
+    return null
+  }
+}
+
+function formatMetadataValue(value: unknown): string {
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value)
+  }
+  if (typeof value === "string") {
+    return value
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((item) =>
+        typeof item === "string" || typeof item === "number"
+          ? String(item)
+          : JSON.stringify(item)
+      )
+      .join(", ")
+  }
+  if (value && typeof value === "object") {
+    return JSON.stringify(value)
+  }
+  return "N/A"
+}
+
 export default function ResearchPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -181,6 +216,11 @@ export default function ResearchPage() {
     }
   }
 
+  async function handleRunFullPipeline() {
+    if (latestRun?.status === "running") return
+    await handleRetryStep("icp_research")
+  }
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -195,12 +235,29 @@ export default function ResearchPage() {
           </p>
         </div>
         {latestRun && (
-          <Badge
-            variant={statusVariant[latestRun.status] ?? "outline"}
-            className="w-fit capitalize"
-          >
-            {latestRun.status}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge
+              variant={statusVariant[latestRun.status] ?? "outline"}
+              className="w-fit capitalize"
+            >
+              {latestRun.status}
+            </Badge>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={latestRun.status === "running" || retryingStep !== null}
+              onClick={() => void handleRunFullPipeline()}
+            >
+              <RiRefreshLine
+                className={`mr-1 h-4 w-4 ${
+                  retryingStep === "icp_research" ? "animate-spin" : ""
+                }`}
+              />
+              {retryingStep === "icp_research"
+                ? "Restarting..."
+                : "Run full pipeline"}
+            </Button>
+          </div>
         )}
       </div>
 
@@ -439,6 +496,7 @@ export default function ResearchPage() {
                   ) : (
                     steps.map((step) => {
                       const display = STEP_DISPLAY[step.step as PipelineStep]
+                      const metadata = parseStepMetadata(step.metadata)
 
                       return (
                         <div
@@ -456,6 +514,19 @@ export default function ResearchPage() {
                               <p className="text-xs text-destructive">
                                 {step.error}
                               </p>
+                            )}
+                            {metadata && Object.keys(metadata).length > 0 && (
+                              <div className="mt-2 flex flex-wrap gap-1.5">
+                                {Object.entries(metadata).map(([key, value]) => (
+                                  <Badge
+                                    key={key}
+                                    variant="outline"
+                                    className="text-[10px]"
+                                  >
+                                    {key}: {formatMetadataValue(value)}
+                                  </Badge>
+                                ))}
+                              </div>
                             )}
                             {step.status === "failed" &&
                               latestRun.status !== "running" &&

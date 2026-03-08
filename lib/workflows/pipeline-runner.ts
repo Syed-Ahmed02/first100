@@ -224,22 +224,43 @@ export async function runResearchPipeline(input: PipelineInput): Promise<void> {
           searchResults: searchResultsWithContent,
         })
 
+        // Hardening: normalize + dedupe + basic spam filtering + trust scoring.
+        const rawExtractedCount = extractedSources.sources.length
+        const preparedSources = extractedSources.sources.map((source) => ({
+          ...source,
+          normalizedUrl: normalizeSourceUrl(source.url),
+          sourceTrustScore: computeSourceTrustScore(source),
+        }))
+        const dedupedSources = dedupeSources(preparedSources)
+        const filteredSources = dedupedSources.filter((source) => {
+          const bodyLength = source.body.trim().length
+          const relevance = source.relevanceScore ?? 0.5
+          return (
+            bodyLength >= 120 &&
+            relevance >= 0.25 &&
+            !looksSpamSource(source.body)
+          )
+        })
+        const filteredOutCount = dedupedSources.length - filteredSources.length
+
         // Store discussion sources in Convex
-        const sourcesToStore = extractedSources.sources
-          .filter((s) => (s.relevanceScore ?? 0.5) >= 0.2)
-          .map((s) => ({
-            sourceType: s.sourceType,
-            url: s.url,
-            postId: s.postId,
-            title: s.title,
-            body: s.body,
-            author: s.author,
-            community: s.community,
-            score: s.score,
-            commentCount: s.commentCount,
-            postedAt: s.postedAt,
-            relevanceScore: s.relevanceScore,
-          }))
+        const sourcesToStore = filteredSources.map((source) => ({
+          sourceType: source.sourceType,
+          url: source.normalizedUrl,
+          postId: source.postId,
+          title: source.title,
+          body: source.body,
+          author: source.author,
+          community: source.community,
+          score: source.score,
+          commentCount: source.commentCount,
+          postedAt: source.postedAt,
+          relevanceScore: source.relevanceScore,
+        }))
+
+        if (sourcesToStore.length === 0) {
+          throw new Error("All extracted sources were filtered out by quality checks")
+        }
 
         if (sourcesToStore.length > 0) {
           storedSourceIds = (await convex.mutation(
@@ -258,8 +279,16 @@ export async function runResearchPipeline(input: PipelineInput): Promise<void> {
           metadata: JSON.stringify({
             resultsAttempted: discoveryResults.results.length,
             resultsWithContent: searchResultsWithContent.length,
-            sourcesExtracted: extractedSources.sources.length,
+            sourcesExtracted: rawExtractedCount,
+            sourcesAfterDedupe: dedupedSources.length,
+            sourcesFilteredOut: filteredOutCount,
             sourcesStored: sourcesToStore.length,
+            avgTrustScore: Number(
+              (
+                filteredSources.reduce((sum, source) => sum + source.sourceTrustScore, 0) /
+                Math.max(filteredSources.length, 1)
+              ).toFixed(2)
+            ),
           }),
         })
       } catch (err) {
@@ -626,6 +655,7 @@ export async function runResearchPipeline(input: PipelineInput): Promise<void> {
           metadata: JSON.stringify({
             provider: leadOutput.provider,
             leadCount: storedLeadsForCampaign.length,
+            searchCriteria: leadOutput.searchCriteria,
           }),
         })
       } catch (err) {
@@ -740,6 +770,9 @@ export async function runResearchPipeline(input: PipelineInput): Promise<void> {
           metadata: JSON.stringify({
             draftsGenerated: draftsToStore.length,
             leadsUsed: storedLeadsForCampaign.length,
+            coveragePct: Number(
+              ((draftsToStore.length / Math.max(storedLeadsForCampaign.length, 1)) * 100).toFixed(1)
+            ),
           }),
         })
       } catch (err) {
@@ -800,4 +833,107 @@ const STEP_ORDER: Record<PipelineStep, number> = {
   messaging_generation: 4,
   lead_generation: 5,
   outreach_generation: 6,
+}
+
+type ExtractedSource = Awaited<
+  ReturnType<typeof runEvidenceExtractionAgent>
+>["sources"][number]
+
+type PreparedSource = ExtractedSource & {
+  normalizedUrl: string
+  sourceTrustScore: number
+}
+
+function normalizeSourceUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    parsed.hash = ""
+    const trackingParams = [
+      "utm_source",
+      "utm_medium",
+      "utm_campaign",
+      "utm_term",
+      "utm_content",
+      "ref",
+      "fbclid",
+      "gclid",
+    ]
+    for (const param of trackingParams) {
+      parsed.searchParams.delete(param)
+    }
+    const normalized = parsed.toString()
+    return normalized.endsWith("/") ? normalized.slice(0, -1) : normalized
+  } catch {
+    return url.trim()
+  }
+}
+
+function bodyFingerprint(body: string): string {
+  const normalized = body
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/[^a-z0-9 ]/g, "")
+    .trim()
+  return normalized.slice(0, 180)
+}
+
+function computeSourceTrustScore(source: ExtractedSource): number {
+  const sourceTypeWeight: Record<ExtractedSource["sourceType"], number> = {
+    reddit: 0.85,
+    hackernews: 0.9,
+    forum: 0.75,
+    review_site: 0.8,
+    other: 0.6,
+  }
+
+  const relevance = Math.max(0, Math.min(1, source.relevanceScore ?? 0.5))
+  const bodyLengthScore = Math.min((source.body?.trim().length ?? 0) / 1000, 1)
+  const attributionScore =
+    (source.author ? 0.1 : 0) +
+    (source.community ? 0.1 : 0) +
+    (source.commentCount && source.commentCount > 0 ? 0.05 : 0)
+
+  const weighted =
+    sourceTypeWeight[source.sourceType] * 0.5 +
+    relevance * 0.35 +
+    bodyLengthScore * 0.1 +
+    attributionScore
+
+  return Math.max(0, Math.min(1, Number(weighted.toFixed(2))))
+}
+
+function looksSpamSource(body: string): boolean {
+  const text = body.toLowerCase()
+  const spamPatterns = [
+    "buy now",
+    "limited time offer",
+    "promo code",
+    "sponsored",
+    "click here",
+    "free trial no credit card",
+  ]
+  return spamPatterns.some((pattern) => text.includes(pattern))
+}
+
+function dedupeSources(sources: PreparedSource[]): PreparedSource[] {
+  const deduped = new Map<string, PreparedSource>()
+
+  for (const source of sources) {
+    const key = `${source.normalizedUrl}::${bodyFingerprint(source.body)}`
+    const existing = deduped.get(key)
+    if (!existing) {
+      deduped.set(key, source)
+      continue
+    }
+
+    const existingScore =
+      (existing.relevanceScore ?? 0.5) * 0.6 + existing.sourceTrustScore * 0.4
+    const candidateScore =
+      (source.relevanceScore ?? 0.5) * 0.6 + source.sourceTrustScore * 0.4
+    if (candidateScore > existingScore) {
+      deduped.set(key, source)
+    }
+  }
+
+  return Array.from(deduped.values())
 }
